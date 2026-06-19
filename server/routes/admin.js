@@ -13,11 +13,13 @@ export function adminRouter(db, config) {
     const rows = domainRows(db, range);
     const totals = rows.reduce((acc, row) => {
       acc.earnings += row.earnings;
+      acc.clientEarnings += row.clientEarnings;
+      acc.ownerCut += row.ownerCut;
       acc.pageViews += row.pageViews;
       acc.visitors += row.visitors;
       acc.activeUsers += row.activeUsers;
       return acc;
-    }, { earnings: 0, pageViews: 0, visitors: 0, activeUsers: 0 });
+    }, { earnings: 0, clientEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0 });
     totals.adxCtr = averageNonZero(rows.map((row) => row.adxCtr));
     totals.adxEcpm = averageNonZero(rows.map((row) => row.adxEcpm));
 
@@ -54,7 +56,8 @@ export function adminRouter(db, config) {
 
     const assigned = db.prepare(`
       SELECT s.id, s.domain, s.category, s.rent_status AS rentStatus,
-        COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom
+        COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom,
+        COALESCE(cs.owner_cut_percent, 0) AS ownerCutPercent
       FROM client_subdomains cs
       INNER JOIN subdomains s ON s.id = cs.subdomain_id
       WHERE cs.client_id = ?
@@ -265,6 +268,7 @@ export function adminRouter(db, config) {
     const assignments = db.prepare(`
       SELECT id, client_id AS clientId, client_name AS clientName,
         visible_from AS visibleFrom, visible_until AS visibleUntil,
+        owner_cut_percent AS ownerCutPercent,
         created_at AS createdAt, ended_at AS endedAt
       FROM subdomain_assignment_history
       WHERE subdomain_id = ?
@@ -277,16 +281,19 @@ export function adminRouter(db, config) {
     const subdomainId = Number(req.params.id);
     const clientId = Number(req.body?.clientId || 0);
     const visibleFrom = cleanVisibleFrom(req.body?.visibleFrom);
+    const ownerCutPercent = cleanOwnerCutPercent(req.body?.ownerCutPercent);
     if (!Number.isInteger(subdomainId) || subdomainId < 1) {
       return res.status(400).json({ error: 'invalid_domain' });
     }
     if (!visibleFrom) return res.status(400).json({ error: 'invalid_visible_from' });
+    if (ownerCutPercent === null) return res.status(400).json({ error: 'invalid_owner_cut_percent' });
 
     const result = db.transaction(() => {
       const subdomain = db.prepare('SELECT id FROM subdomains WHERE id = ?').get(subdomainId);
       if (!subdomain) return { error: 'not_found' };
       const previous = db.prepare(`
-        SELECT client_id AS clientId, visible_from AS visibleFrom
+        SELECT client_id AS clientId, visible_from AS visibleFrom,
+          owner_cut_percent AS ownerCutPercent
         FROM client_subdomains
         WHERE subdomain_id = ?
       `).all(subdomainId);
@@ -311,14 +318,14 @@ export function adminRouter(db, config) {
       if (current) {
         db.prepare(`
           UPDATE client_subdomains
-          SET visible_from = ?
+          SET visible_from = ?, owner_cut_percent = ?
           WHERE client_id = ? AND subdomain_id = ?
-        `).run(visibleFrom, clientId, subdomainId);
+        `).run(visibleFrom, ownerCutPercent, clientId, subdomainId);
       } else {
         db.prepare(`
-          INSERT INTO client_subdomains (client_id, subdomain_id, visible_from)
-          VALUES (?, ?, ?)
-        `).run(clientId, subdomainId, visibleFrom);
+          INSERT INTO client_subdomains (client_id, subdomain_id, visible_from, owner_cut_percent)
+          VALUES (?, ?, ?, ?)
+        `).run(clientId, subdomainId, visibleFrom, ownerCutPercent);
       }
       const history = db.prepare(`
         SELECT id
@@ -328,18 +335,18 @@ export function adminRouter(db, config) {
       if (history) {
         db.prepare(`
           UPDATE subdomain_assignment_history
-          SET visible_from = ?, visible_until = NULL
+          SET visible_from = ?, visible_until = NULL, owner_cut_percent = ?
           WHERE id = ?
-        `).run(visibleFrom, history.id);
+        `).run(visibleFrom, ownerCutPercent, history.id);
       } else {
         db.prepare(`
           INSERT INTO subdomain_assignment_history (
-            subdomain_id, client_id, client_name, visible_from
+            subdomain_id, client_id, client_name, visible_from, owner_cut_percent
           )
-          VALUES (?, ?, ?, ?)
-        `).run(subdomainId, clientId, client.name, visibleFrom);
+          VALUES (?, ?, ?, ?, ?)
+        `).run(subdomainId, clientId, client.name, visibleFrom, ownerCutPercent);
       }
-      return { previous, assignment: { clientId, visibleFrom } };
+      return { previous, assignment: { clientId, visibleFrom, ownerCutPercent } };
     })();
 
     if (result.error === 'not_found') return res.status(404).json({ error: result.error });
@@ -431,6 +438,12 @@ function cleanVisibleFrom(value) {
   return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate ? null : candidate;
 }
 
+function cleanOwnerCutPercent(value) {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) return null;
+  return Number(numeric.toFixed(2));
+}
+
 function closeActiveAssignmentHistory(db, subdomainId, nextVisibleFrom, keepClientId = null) {
   const params = {
     subdomainId,
@@ -462,11 +475,14 @@ function domainRows(db, range) {
       c.id AS clientId,
       c.name AS clientName,
       COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom,
+      COALESCE(cs.owner_cut_percent, 0) AS ownerCutPercent,
       COALESCE(SUM(m.visitors), 0) AS visitors,
       COALESCE(SUM(m.page_views), 0) AS pageViews,
       COALESCE(AVG(NULLIF(m.bounce_rate, 0)), 0) AS bounceRate,
       COALESCE(SUM(m.engaged_sessions), 0) AS engagedSessions,
       COALESCE(SUM(m.earnings), 0) AS earnings,
+      ROUND(COALESCE(SUM(m.earnings), 0) * COALESCE(cs.owner_cut_percent, 0) / 100, 2) AS ownerCut,
+      ROUND(COALESCE(SUM(m.earnings), 0) * (100 - COALESCE(cs.owner_cut_percent, 0)) / 100, 2) AS clientEarnings,
       COALESCE(SUM(m.active_users), 0) AS activeUsers,
       COALESCE(SUM(m.clicks), 0) AS clicks,
       COALESCE(SUM(m.impressions), 0) AS impressions,
@@ -480,7 +496,7 @@ function domainRows(db, range) {
     LEFT JOIN metrics_daily m
       ON m.subdomain_id = s.id
       AND m.metric_date BETWEEN @from AND @to
-    GROUP BY s.id, c.id
+    GROUP BY s.id, c.id, cs.owner_cut_percent
     ORDER BY earnings DESC, pageViews DESC
   `).all(range);
 }

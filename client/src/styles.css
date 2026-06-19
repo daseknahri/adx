@@ -462,7 +462,7 @@ main {
 
 .domain-table {
   width: 100%;
-  min-width: 1090px;
+  min-width: 1240px;
   border-collapse: collapse;
 }
 
@@ -489,6 +489,17 @@ main {
 
 .domain-table tr:last-child td {
   border-bottom: 0;
+}
+
+.domain-table tfoot td {
+  height: 44px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .empty {
@@ -849,7 +860,7 @@ select:focus {
 
 .assignment-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px auto;
+  grid-template-columns: minmax(0, 1fr) 160px 120px auto;
   align-items: end;
   gap: 10px;
 }

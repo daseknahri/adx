@@ -89,10 +89,10 @@ test('assignment dates scope client metrics and reassignment revokes the previou
   const assignment = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment`, {
     method: 'PUT',
     headers: { cookie: adminCookie },
-    body: JSON.stringify({ clientId: nextClientId, visibleFrom: domain.latestDate })
+    body: JSON.stringify({ clientId: nextClientId, visibleFrom: domain.latestDate, ownerCutPercent: 25 })
   });
   assert.equal(assignment.response.status, 200);
-  assert.deepEqual(assignment.body.assignment, { clientId: nextClientId, visibleFrom: domain.latestDate });
+  assert.deepEqual(assignment.body.assignment, { clientId: nextClientId, visibleFrom: domain.latestDate, ownerCutPercent: 25 });
 
   const assignmentHistory = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment-history`, {
     headers: { cookie: adminCookie }
@@ -100,6 +100,7 @@ test('assignment dates scope client metrics and reassignment revokes the previou
   assert.equal(assignmentHistory.response.status, 200);
   assert.equal(assignmentHistory.body.assignments[0].clientName, 'Date Scoped Client');
   assert.equal(assignmentHistory.body.assignments[0].visibleFrom, domain.latestDate);
+  assert.equal(assignmentHistory.body.assignments[0].ownerCutPercent, 25);
   assert.equal(assignmentHistory.body.assignments[0].endedAt, null);
   assert.equal(assignmentHistory.body.assignments[1].clientName, 'Demo Client');
   assert.ok(assignmentHistory.body.assignments[1].endedAt);
@@ -121,14 +122,19 @@ test('assignment dates scope client metrics and reassignment revokes the previou
     WHERE subdomain_id = ? AND metric_date = ?
   `).get(domain.id, domain.latestDate);
   assert.equal(scopedRow.visibleFrom, domain.latestDate);
+  assert.equal(scopedRow.ownerCutPercent, 25);
   assert.equal(scopedRow.pageViews, latestMetric.pageViews);
-  assert.equal(scopedRow.earnings, latestMetric.earnings);
+  assert.equal(scopedRow.grossEarnings, latestMetric.earnings);
+  assert.equal(scopedRow.ownerCut, Number((latestMetric.earnings * 0.25).toFixed(2)));
+  assert.equal(scopedRow.earnings, Number((latestMetric.earnings * 0.75).toFixed(2)));
 
   const daily = await request(app.baseUrl, `/api/client/subdomains/${domain.id}/daily?from=${domain.firstDate}&to=${domain.latestDate}`, {
     headers: { cookie: nextClientCookie }
   });
   assert.equal(daily.response.status, 200);
   assert.deepEqual(daily.body.rows.map((row) => row.date), [domain.latestDate]);
+  assert.equal(daily.body.rows[0].grossEarnings, latestMetric.earnings);
+  assert.equal(daily.body.rows[0].earnings, Number((latestMetric.earnings * 0.75).toFixed(2)));
 
   const removed = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment`, {
     method: 'PUT',

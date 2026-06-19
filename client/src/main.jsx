@@ -239,9 +239,10 @@ function ClientDashboard() {
     <section className="workspace">
       <PageTitle title="Salary Dashboard" subtitle="My Domains" />
       <Controls range={range} setRange={setRange} onRefresh={load} onColumns={() => setCompactColumns((current) => !current)} />
-      <MetricStrip totals={data.totals} />
+      <MetricStrip totals={data.totals} clientMode />
       <DomainTable
         rows={data.rows}
+        totals={data.totals}
         loading={loading}
         clientMode
         compact={compactColumns}
@@ -324,10 +325,18 @@ function AdminConsole() {
     });
     const nextClientId = Number(values.clientId || 0);
     const currentClientId = Number(row.clientId || 0);
-    if (currentClientId !== nextClientId || row.visibleFrom !== values.visibleFrom) {
+    if (
+      currentClientId !== nextClientId ||
+      row.visibleFrom !== values.visibleFrom ||
+      Number(row.ownerCutPercent || 0) !== Number(values.ownerCutPercent || 0)
+    ) {
       await api(`/api/admin/subdomains/${row.id}/assignment`, {
         method: 'PUT',
-        body: JSON.stringify({ clientId: nextClientId || null, visibleFrom: values.visibleFrom })
+        body: JSON.stringify({
+          clientId: nextClientId || null,
+          visibleFrom: values.visibleFrom,
+          ownerCutPercent: values.ownerCutPercent
+        })
       });
     }
     setEditDomain(null);
@@ -489,7 +498,7 @@ function syncMessage(result) {
   }
   if (stats.unmatchedRows) details.push(`${number(stats.unmatchedRows)} unmatched`);
   if (stats.skippedEmptyRows) details.push(`${number(stats.skippedEmptyRows)} unchanged`);
-  const detailText = details.length ? ` · ${details.join(' · ')}` : '';
+  const detailText = details.length ? ` - ${details.join(' - ')}` : '';
   return `Synced ${number(result.rowsSynced)} rows (${result.mode})${detailText}${rangeText}`;
 }
 
@@ -515,7 +524,8 @@ function AdminForms({ clients, onChanged }) {
     rentStatus: 'active',
     notes: '',
     clientId: '',
-    visibleFrom: isoDate(new Date())
+    visibleFrom: isoDate(new Date()),
+    ownerCutPercent: '20'
   });
 
   async function createClient(event) {
@@ -537,7 +547,11 @@ function AdminForms({ clients, onChanged }) {
     if (subdomain.clientId) {
       await api(`/api/admin/subdomains/${created.subdomain.id}/assign`, {
         method: 'POST',
-        body: JSON.stringify({ clientId: Number(subdomain.clientId), visibleFrom: subdomain.visibleFrom })
+        body: JSON.stringify({
+          clientId: Number(subdomain.clientId),
+          visibleFrom: subdomain.visibleFrom,
+          ownerCutPercent: subdomain.ownerCutPercent
+        })
       });
     }
     setSubdomain({
@@ -547,7 +561,8 @@ function AdminForms({ clients, onChanged }) {
       rentStatus: 'active',
       notes: '',
       clientId: '',
-      visibleFrom: isoDate(new Date())
+      visibleFrom: isoDate(new Date()),
+      ownerCutPercent: '20'
     });
     onChanged();
   }
@@ -670,6 +685,18 @@ function AdminForms({ clients, onChanged }) {
           <label>
             Client access begins
             <input type="date" value={subdomain.visibleFrom} onChange={setField(setSubdomain, 'visibleFrom')} disabled={!subdomain.clientId} />
+          </label>
+          <label>
+            Your cut (%)
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={subdomain.ownerCutPercent}
+              onChange={setField(setSubdomain, 'ownerCutPercent')}
+              disabled={!subdomain.clientId}
+            />
           </label>
           <button className="secondary-button" type="submit">
             <Globe2 size={15} />
@@ -868,6 +895,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
   const [data, setData] = useState({ assigned: [], available: [] });
   const [selectedDomainId, setSelectedDomainId] = useState('');
   const [visibleFrom, setVisibleFrom] = useState(() => isoDate(new Date()));
+  const [ownerCutPercent, setOwnerCutPercent] = useState('20');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -888,9 +916,10 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
     try {
       await api(`/api/admin/subdomains/${selectedDomainId}/assignment`, {
         method: 'PUT',
-        body: JSON.stringify({ clientId: client.id, visibleFrom })
+        body: JSON.stringify({ clientId: client.id, visibleFrom, ownerCutPercent })
       });
       setSelectedDomainId('');
+      setOwnerCutPercent('20');
       await Promise.all([load(), onChanged()]);
     } catch (assignmentError) {
       setError(assignmentError.message || 'Unable to assign subdomain');
@@ -939,6 +968,18 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
             Client access begins
             <input type="date" value={visibleFrom} onChange={(event) => setVisibleFrom(event.target.value)} disabled={busy} />
           </label>
+          <label>
+            Your cut (%)
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={ownerCutPercent}
+              onChange={(event) => setOwnerCutPercent(event.target.value)}
+              disabled={busy}
+            />
+          </label>
           <button className="secondary-button" type="submit" disabled={!selectedDomainId || busy}>
             <Plus size={15} />
             Add Domain
@@ -949,7 +990,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
             <div className="assignment-row" key={domain.id}>
               <div>
                 <strong>{domain.domain}</strong>
-                <span>Access from {domain.visibleFrom}</span>
+                <span>Access from {domain.visibleFrom} - your cut {number(domain.ownerCutPercent)}%</span>
               </div>
               <button className="row-action danger" type="button" title="Remove from client" onClick={() => removeDomain(domain)} disabled={busy}>
                 <Trash2 size={15} />
@@ -1005,7 +1046,8 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
     rentStatus: row.rentStatus || 'active',
     notes: row.notes || '',
     clientId: row.clientId ? String(row.clientId) : '',
-    visibleFrom: row.visibleFrom || isoDate(new Date())
+    visibleFrom: row.visibleFrom || isoDate(new Date()),
+    ownerCutPercent: String(row.ownerCutPercent ?? 20)
   }));
 
   useEffect(() => {
@@ -1074,6 +1116,18 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
             <input type="date" value={values.visibleFrom} onChange={setField(setValues, 'visibleFrom')} disabled={!values.clientId} />
           </label>
           <label>
+            Your cut (%)
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={values.ownerCutPercent}
+              onChange={setField(setValues, 'ownerCutPercent')}
+              disabled={!values.clientId}
+            />
+          </label>
+          <label>
             Notes
             <input value={values.notes} onChange={setField(setValues, 'notes')} />
           </label>
@@ -1083,7 +1137,7 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
             {assignmentHistory.map((assignment) => (
               <div key={assignment.id}>
                 <strong>{assignment.clientName}</strong>
-                <span>{assignment.visibleFrom} to {assignment.visibleUntil || 'Current'}</span>
+                <span>{assignment.visibleFrom} to {assignment.visibleUntil || 'Current'} - cut {number(assignment.ownerCutPercent)}%</span>
               </div>
             ))}
           </div>
@@ -1172,9 +1226,9 @@ function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refre
   );
 }
 
-function MetricStrip({ totals = {} }) {
+function MetricStrip({ totals = {}, clientMode = false }) {
   const stats = [
-    { label: 'Revenue', value: money(totals.earnings), icon: CircleDollarSign },
+    { label: clientMode ? 'Your Earnings' : 'Gross Revenue', value: money(totals.earnings), icon: CircleDollarSign },
     { label: 'Page Views', value: number(totals.pageViews), icon: LayoutDashboard },
     { label: 'AdX CTR', value: percent(totals.adxCtr), icon: Activity },
     { label: 'AdX eCPM', value: money(totals.adxEcpm), icon: DatabaseZap }
@@ -1192,8 +1246,10 @@ function MetricStrip({ totals = {} }) {
   );
 }
 
-function DomainTable({ rows, loading, clientMode, compact, onView, onEdit, onDelete }) {
-  const colSpan = (clientMode ? 6 : 7) + (compact ? 0 : 3);
+function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, onEdit, onDelete }) {
+  const colSpan = clientMode
+    ? (compact ? 6 : 10)
+    : (compact ? 9 : 12);
   return (
     <div className="domain-table-wrap">
       <table className="domain-table">
@@ -1206,7 +1262,10 @@ function DomainTable({ rows, loading, clientMode, compact, onView, onEdit, onDel
             {!compact ? <th>Clicks</th> : null}
             <th>AdX CTR</th>
             <th>AdX eCPM</th>
-            <th>Revenue</th>
+            {clientMode && !compact ? <th>Client Share</th> : null}
+            <th>{clientMode ? 'Your Earnings' : 'Gross Revenue'}</th>
+            {!clientMode ? <th>Client Net</th> : null}
+            {!clientMode ? <th>Your Cut</th> : null}
             {!compact ? <th>Source</th> : null}
             <th>Actions</th>
           </tr>
@@ -1229,7 +1288,10 @@ function DomainTable({ rows, loading, clientMode, compact, onView, onEdit, onDel
               {!compact ? <td>{number(row.clicks)}</td> : null}
               <td>{percent(row.adxCtr)}</td>
               <td>{money(row.adxEcpm)}</td>
+              {clientMode && !compact ? <td>{number(row.clientSharePercent)}%</td> : null}
               <td className="money">{money(row.earnings)}</td>
+              {!clientMode ? <td className="money">{money(row.clientEarnings)}</td> : null}
+              {!clientMode ? <td>{money(row.ownerCut)}</td> : null}
               {!compact ? <td><span className="source-pill">{row.source || 'empty'}</span></td> : null}
               <td>
                 <div className="row-actions">
@@ -1253,6 +1315,22 @@ function DomainTable({ rows, loading, clientMode, compact, onView, onEdit, onDel
             <tr><td className="empty" colSpan={colSpan}>No results.</td></tr>
           )}
         </tbody>
+        {clientMode && !loading && rows.length ? (
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td>{number(totals.pageViews)}</td>
+              {!compact ? <td>{number(rows.reduce((sum, row) => sum + Number(row.impressions || 0), 0))}</td> : null}
+              {!compact ? <td>{number(rows.reduce((sum, row) => sum + Number(row.clicks || 0), 0))}</td> : null}
+              <td>{percent(totals.adxCtr)}</td>
+              <td>{money(totals.adxEcpm)}</td>
+              {!compact ? <td>-</td> : null}
+              <td className="money">{money(totals.earnings)}</td>
+              {!compact ? <td>-</td> : null}
+              <td />
+            </tr>
+          </tfoot>
+        ) : null}
       </table>
     </div>
   );
@@ -1291,7 +1369,7 @@ function DetailDrawer({ row, range, dailyPath, onClose }) {
             <div key={day.date}>
               <span>{day.date}</span>
               <strong>{money(day.earnings)}</strong>
-              <em>{number(day.pageViews)} views · {percent(day.adxCtr)} CTR</em>
+              <em>{number(day.pageViews)} views - {percent(day.adxCtr)} CTR</em>
             </div>
           ))}
         </div>

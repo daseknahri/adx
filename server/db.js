@@ -49,6 +49,7 @@ function migrate(db) {
       client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
       subdomain_id INTEGER NOT NULL REFERENCES subdomains(id) ON DELETE CASCADE,
       visible_from TEXT,
+      owner_cut_percent REAL NOT NULL DEFAULT 0,
       assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (client_id, subdomain_id)
     );
@@ -60,6 +61,7 @@ function migrate(db) {
       client_name TEXT NOT NULL,
       visible_from TEXT NOT NULL,
       visible_until TEXT,
+      owner_cut_percent REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       ended_at TEXT
     );
@@ -121,6 +123,8 @@ function migrate(db) {
   ensureColumn(db, 'metrics_daily', 'adx_ctr', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'metrics_daily', 'adx_ecpm', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'client_subdomains', 'visible_from', 'TEXT');
+  ensureColumn(db, 'client_subdomains', 'owner_cut_percent', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'subdomain_assignment_history', 'owner_cut_percent', 'REAL NOT NULL DEFAULT 0');
   db.prepare(`
     UPDATE client_subdomains
     SET visible_from = COALESCE(NULLIF(visible_from, ''), substr(assigned_at, 1, 10), date('now'))
@@ -128,10 +132,11 @@ function migrate(db) {
   `).run();
   db.prepare(`
     INSERT INTO subdomain_assignment_history (
-      subdomain_id, client_id, client_name, visible_from
+      subdomain_id, client_id, client_name, visible_from, owner_cut_percent
     )
     SELECT cs.subdomain_id, cs.client_id, c.name,
-      COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10), date('now'))
+      COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10), date('now')),
+      COALESCE(cs.owner_cut_percent, 0)
     FROM client_subdomains cs
     INNER JOIN clients c ON c.id = cs.client_id
     WHERE NOT EXISTS (
@@ -168,14 +173,14 @@ export function seedDatabase(db, config) {
     VALUES (@domain, @category, @unitPrice, @rentStatus, @notes)
   `);
   const assign = db.prepare(`
-    INSERT INTO client_subdomains (client_id, subdomain_id, visible_from)
-    VALUES (?, ?, ?)
+    INSERT INTO client_subdomains (client_id, subdomain_id, visible_from, owner_cut_percent)
+    VALUES (?, ?, ?, ?)
   `);
   const insertAssignmentHistory = db.prepare(`
     INSERT INTO subdomain_assignment_history (
-      subdomain_id, client_id, client_name, visible_from
+      subdomain_id, client_id, client_name, visible_from, owner_cut_percent
     )
-    VALUES (?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?)
   `);
   const insertMetric = db.prepare(`
     INSERT INTO metrics_daily (
@@ -226,8 +231,8 @@ export function seedDatabase(db, config) {
       });
       const subdomainId = Number(result.lastInsertRowid);
       const visibleFrom = new Date().toISOString().slice(0, 10);
-      assign.run(clientId, subdomainId, visibleFrom);
-      insertAssignmentHistory.run(subdomainId, clientId, 'Demo Client', visibleFrom);
+      assign.run(clientId, subdomainId, visibleFrom, 20);
+      insertAssignmentHistory.run(subdomainId, clientId, 'Demo Client', visibleFrom, 20);
       for (let offset = 0; offset < 10; offset += 1) {
         const date = new Date();
         date.setDate(date.getDate() - offset);

@@ -15,11 +15,15 @@ export function clientRouter(db) {
         s.unit_price AS unitPrice,
         s.rent_status AS rentStatus,
         COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom,
+        COALESCE(cs.owner_cut_percent, 0) AS ownerCutPercent,
+        100 - COALESCE(cs.owner_cut_percent, 0) AS clientSharePercent,
         COALESCE(SUM(m.visitors), 0) AS visitors,
         COALESCE(SUM(m.page_views), 0) AS pageViews,
         COALESCE(AVG(NULLIF(m.bounce_rate, 0)), 0) AS bounceRate,
         COALESCE(SUM(m.engaged_sessions), 0) AS engagedSessions,
-        COALESCE(SUM(m.earnings), 0) AS earnings,
+        COALESCE(SUM(m.earnings), 0) AS grossEarnings,
+        ROUND(COALESCE(SUM(m.earnings), 0) * COALESCE(cs.owner_cut_percent, 0) / 100, 2) AS ownerCut,
+        ROUND(COALESCE(SUM(m.earnings), 0) * (100 - COALESCE(cs.owner_cut_percent, 0)) / 100, 2) AS earnings,
         COALESCE(SUM(m.active_users), 0) AS activeUsers,
         COALESCE(SUM(m.clicks), 0) AS clicks,
         COALESCE(SUM(m.impressions), 0) AS impressions,
@@ -34,17 +38,19 @@ export function clientRouter(db) {
         AND m.metric_date BETWEEN @from AND @to
         AND m.metric_date >= COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10))
       WHERE cs.client_id = @clientId
-      GROUP BY s.id
+      GROUP BY s.id, cs.owner_cut_percent
       ORDER BY earnings DESC, pageViews DESC
     `).all({ ...range, clientId: req.user.clientId });
 
     const totals = rows.reduce((acc, row) => {
       acc.earnings += row.earnings;
+      acc.grossEarnings += row.grossEarnings;
+      acc.ownerCut += row.ownerCut;
       acc.pageViews += row.pageViews;
       acc.visitors += row.visitors;
       acc.activeUsers += row.activeUsers;
       return acc;
-    }, { earnings: 0, pageViews: 0, visitors: 0, activeUsers: 0 });
+    }, { earnings: 0, grossEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0 });
     totals.adxCtr = averageNonZero(rows.map((row) => row.adxCtr));
     totals.adxEcpm = averageNonZero(rows.map((row) => row.adxEcpm));
 
@@ -58,7 +64,8 @@ export function clientRouter(db) {
       return res.status(400).json({ error: 'invalid_domain' });
     }
     const assignment = db.prepare(`
-      SELECT COALESCE(visible_from, substr(assigned_at, 1, 10)) AS visibleFrom
+      SELECT COALESCE(visible_from, substr(assigned_at, 1, 10)) AS visibleFrom,
+        COALESCE(owner_cut_percent, 0) AS ownerCutPercent
       FROM client_subdomains
       WHERE client_id = ? AND subdomain_id = ?
     `).get(req.user.clientId, subdomainId);
@@ -66,14 +73,23 @@ export function clientRouter(db) {
 
     const rows = db.prepare(`
       SELECT metric_date AS date, visitors, page_views AS pageViews, bounce_rate AS bounceRate,
-        engaged_sessions AS engagedSessions, earnings, active_users AS activeUsers,
+        engaged_sessions AS engagedSessions,
+        earnings AS grossEarnings,
+        ROUND(earnings * @ownerCutPercent / 100, 2) AS ownerCut,
+        ROUND(earnings * (100 - @ownerCutPercent) / 100, 2) AS earnings,
+        active_users AS activeUsers,
         clicks, impressions, rpm, adx_ctr AS adxCtr, adx_ecpm AS adxEcpm, source
       FROM metrics_daily
       WHERE subdomain_id = @subdomainId
         AND metric_date BETWEEN @from AND @to
         AND metric_date >= @visibleFrom
       ORDER BY metric_date ASC
-    `).all({ subdomainId, visibleFrom: assignment.visibleFrom, ...range });
+    `).all({
+      subdomainId,
+      visibleFrom: assignment.visibleFrom,
+      ownerCutPercent: assignment.ownerCutPercent,
+      ...range
+    });
 
     res.json({ range, rows });
   });
