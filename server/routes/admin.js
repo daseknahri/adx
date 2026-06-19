@@ -9,7 +9,7 @@ export function adminRouter(db, config) {
   router.use(requireAdmin);
 
   router.get('/overview', (req, res) => {
-    const range = parseRange(req.query);
+    const range = parseRange(db, req.query);
     const rows = domainRows(db, range);
     const totals = rows.reduce((acc, row) => {
       acc.earnings += row.earnings;
@@ -187,11 +187,11 @@ export function adminRouter(db, config) {
   });
 
   router.get('/subdomains', (req, res) => {
-    res.json({ subdomains: domainRows(db, parseRange(req.query)) });
+    res.json({ subdomains: domainRows(db, parseRange(db, req.query)) });
   });
 
   router.get('/subdomains/:id/daily', (req, res) => {
-    const range = parseRange(req.query);
+    const range = parseRange(db, req.query);
     const subdomainId = Number(req.params.id);
     if (!Number.isInteger(subdomainId) || subdomainId < 1) {
       return res.status(400).json({ error: 'invalid_domain' });
@@ -370,7 +370,7 @@ export function adminRouter(db, config) {
   });
 
   router.post('/sync/google', async (req, res) => {
-    const range = parseRange(req.body || {});
+    const range = parseRange(db, req.body || {});
     const result = await syncGoogleReports(db, config, range);
     audit(db, req, 'sync.google', 'sync_run', result.syncRunId, result);
     res.json(result);
@@ -408,12 +408,8 @@ export function adminRouter(db, config) {
   return router;
 }
 
-function parseRange(query) {
-  const today = new Date().toISOString().slice(0, 10);
-  return {
-    from: String(query.from || today),
-    to: String(query.to || today)
-  };
+function parseRange(db, query) {
+  return normalizeRange(query, metricBounds(db));
 }
 
 function cleanClientInput(body) {
@@ -528,24 +524,48 @@ function applyAdTotals(totals, rows, revenueKey) {
 }
 
 function dataFreshness(db) {
-  const row = db.prepare(`
+  const row = metricBounds(db);
+  const count = db.prepare(`
     SELECT
-      MIN(metric_date) AS firstMetricDate,
-      MAX(metric_date) AS latestMetricDate,
       MAX(updated_at) AS latestUpdatedAt,
       COUNT(*) AS metricRows
     FROM metrics_daily
-    WHERE source IN ('admanager', 'adsense', 'ga4', 'mock')
   `).get();
   const today = new Date().toISOString().slice(0, 10);
   const latestMetricDate = row?.latestMetricDate || null;
   return {
     firstMetricDate: row?.firstMetricDate || null,
     latestMetricDate,
-    latestUpdatedAt: row?.latestUpdatedAt || null,
-    metricRows: Number(row?.metricRows || 0),
+    latestUpdatedAt: count?.latestUpdatedAt || null,
+    metricRows: Number(count?.metricRows || 0),
     staleDays: latestMetricDate ? daysBetween(latestMetricDate, today) : null
   };
+}
+
+function metricBounds(db) {
+  return db.prepare(`
+    SELECT
+      MIN(metric_date) AS firstMetricDate,
+      MAX(metric_date) AS latestMetricDate
+    FROM metrics_daily
+  `).get();
+}
+
+function normalizeRange(query = {}, bounds = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const fallbackFrom = bounds?.firstMetricDate || bounds?.latestMetricDate || today;
+  const fallbackTo = bounds?.latestMetricDate || bounds?.firstMetricDate || today;
+  let from = cleanDate(query.from) || fallbackFrom;
+  let to = cleanDate(query.to) || fallbackTo;
+  if (from > to) [from, to] = [to, from];
+  return { from, to };
+}
+
+function cleanDate(value) {
+  const candidate = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
+  const parsed = new Date(`${candidate}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate ? null : candidate;
 }
 
 function daysBetween(from, to) {

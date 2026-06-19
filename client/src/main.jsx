@@ -26,6 +26,10 @@ import {
 import './styles.css';
 
 const datePresets = {
+  'All Time': () => ({
+    from: '',
+    to: ''
+  }),
   Today: () => {
     const today = isoDate(new Date());
     return { from: today, to: today };
@@ -198,6 +202,7 @@ function PasswordInput({ id, ...props }) {
 }
 
 function ClientDashboard() {
+  const [range, setRange] = useDateRange();
   const [compactColumns, setCompactColumns] = useState(false);
   const [data, setData] = useState({ totals: {}, rows: [] });
   const [loading, setLoading] = useState(true);
@@ -213,7 +218,7 @@ function ClientDashboard() {
       setLoading(true);
     }
     try {
-      const result = await api('/api/client/dashboard');
+      const result = await api(pathWithRange('/api/client/dashboard', range));
       setData(result);
       setAccessError('');
       setLastLoadedAt(new Date());
@@ -226,7 +231,7 @@ function ClientDashboard() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [range]);
 
   useEffect(() => {
     load();
@@ -262,13 +267,16 @@ function ClientDashboard() {
   return (
     <section className="workspace">
       <PageTitle title="Salary Dashboard" subtitle="My Domains" />
-      <ClientControls
-        refreshing={refreshing}
-        syncSummary={data.syncSummary}
-        lastLoadedAt={lastLoadedAt}
+      <Controls
+        range={range}
+        setRange={setRange}
         onRefresh={() => load({ silent: true })}
+        refreshLabel={refreshing ? 'Updating' : 'Refresh'}
+        refreshDisabled={refreshing}
         onColumns={() => setCompactColumns((current) => !current)}
-      />
+      >
+        <ClientFreshness syncSummary={data.syncSummary} lastLoadedAt={lastLoadedAt} />
+      </Controls>
       <MetricStrip totals={data.totals} clientMode />
       <DomainTable
         rows={data.rows}
@@ -279,7 +287,7 @@ function ClientDashboard() {
         onView={(row) => setSelected(row)}
       />
       {selected ? (
-        <DetailDrawer row={selected} onClose={() => setSelected(null)} />
+        <DetailDrawer row={selected} range={range} onClose={() => setSelected(null)} />
       ) : null}
     </section>
   );
@@ -303,7 +311,7 @@ function AdminConsole() {
   const load = useCallback(async () => {
     setLoading(true);
     const [overviewResult, clientResult, googleResult] = await Promise.all([
-      api(`/api/admin/overview?${rangeQuery(range)}`),
+      api(pathWithRange('/api/admin/overview', range)),
       api('/api/admin/clients'),
       api('/api/admin/google/status')
     ]);
@@ -1163,19 +1171,17 @@ function PageTitle({ title, subtitle }) {
 
 function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refresh', refreshDisabled = false, children }) {
   function updateFrom(from) {
-    setRange((current) => ({
-      from,
-      to: from > current.to ? from : current.to,
-      preset: 'Custom'
-    }));
+    setRange((current) => {
+      const to = from && current.to && from > current.to ? from : current.to;
+      return { from, to, preset: 'Custom' };
+    });
   }
 
   function updateTo(to) {
-    setRange((current) => ({
-      from: to < current.from ? to : current.from,
-      to,
-      preset: 'Custom'
-    }));
+    setRange((current) => {
+      const from = to && current.from && to < current.from ? to : current.from;
+      return { from, to, preset: 'Custom' };
+    });
   }
 
   return (
@@ -1222,25 +1228,15 @@ function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refre
   );
 }
 
-function ClientControls({ refreshing, syncSummary = {}, lastLoadedAt, onRefresh, onColumns }) {
+function ClientFreshness({ syncSummary = {}, lastLoadedAt }) {
   const latestLabel = syncSummary.latestMetricDate
     ? `Data through ${syncSummary.latestMetricDate}`
     : 'Waiting for synced data';
   const loadedLabel = lastLoadedAt ? `checked ${formatTime(lastLoadedAt)}` : 'checking now';
   return (
-    <div className="controls">
-      <button className="ghost-button" type="button" onClick={onRefresh}>
-        <RefreshCcw size={15} />
-        {refreshing ? 'Updating' : 'Refresh'}
-      </button>
-      <button className="ghost-button" type="button" onClick={onColumns}>
-        Columns
-        <ChevronDown size={15} />
-      </button>
-      <span className="auto-sync-note">
-        Auto updates - {latestLabel} - {loadedLabel}
-      </span>
-    </div>
+    <span className="auto-sync-note">
+      Auto updates - {latestLabel} - {loadedLabel}
+    </span>
   );
 }
 
@@ -1359,7 +1355,7 @@ function DetailDrawer({ row, range, dailyPath, onClose }) {
 
   useEffect(() => {
     const path = dailyPath || `/api/client/subdomains/${row.id}/daily`;
-    api(range ? `${path}?${rangeQuery(range)}` : path).then((result) => setDaily(result.rows));
+    api(pathWithRange(path, range)).then((result) => setDaily(result.rows));
   }, [row.id, range, dailyPath]);
 
   return (
@@ -1369,7 +1365,7 @@ function DetailDrawer({ row, range, dailyPath, onClose }) {
         <div className="panel-heading">
           <div>
             <h2>{row.domain}</h2>
-            <p>{range ? `${range.from} - ${range.to}` : 'All synced dates'}</p>
+            <p>{rangeLabel(range)}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose}>x</button>
         </div>
@@ -1405,7 +1401,7 @@ function Splash() {
 }
 
 function useDateRange() {
-  return useState(() => ({ ...datePresets.Today(), preset: 'Today' }));
+  return useState(() => ({ ...datePresets['All Time'](), preset: 'All Time' }));
 }
 
 function setField(setter, field) {
@@ -1413,7 +1409,21 @@ function setField(setter, field) {
 }
 
 function rangeQuery(range) {
-  return new URLSearchParams({ from: range.from, to: range.to }).toString();
+  const params = new URLSearchParams();
+  if (range?.from) params.set('from', range.from);
+  if (range?.to) params.set('to', range.to);
+  return params.toString();
+}
+
+function pathWithRange(path, range) {
+  const query = rangeQuery(range);
+  return query ? `${path}?${query}` : path;
+}
+
+function rangeLabel(range) {
+  if (!range?.from && !range?.to) return 'All synced dates';
+  if (range.from && range.to) return `${range.from} - ${range.to}`;
+  return range.from ? `From ${range.from}` : `Until ${range.to}`;
 }
 
 function filterRows(rows, query) {

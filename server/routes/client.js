@@ -6,6 +6,7 @@ export function clientRouter(db) {
   router.use(requireClient);
 
   router.get('/dashboard', (req, res) => {
+    const range = parseRange(db, req.query, req.user.clientId);
     const rows = db.prepare(`
       SELECT
         s.id,
@@ -37,10 +38,11 @@ export function clientRouter(db) {
       INNER JOIN client_subdomains cs ON cs.subdomain_id = s.id
       LEFT JOIN metrics_daily m
         ON m.subdomain_id = s.id
+        AND m.metric_date BETWEEN @from AND @to
       WHERE cs.client_id = @clientId
       GROUP BY s.id, cs.owner_cut_percent
       ORDER BY earnings DESC, pageViews DESC
-    `).all({ clientId: req.user.clientId });
+    `).all({ clientId: req.user.clientId, ...range });
 
     const totals = rows.reduce((acc, row) => {
       acc.earnings += row.earnings;
@@ -56,10 +58,11 @@ export function clientRouter(db) {
     applyAdTotals(totals, rows, 'grossEarnings');
     const syncSummary = dataFreshness(db, req.user.clientId);
 
-    res.json({ totals, rows, syncSummary });
+    res.json({ range, totals, rows, syncSummary });
   });
 
   router.get('/subdomains/:id/daily', (req, res) => {
+    const range = parseRange(db, req.query, req.user.clientId);
     const subdomainId = Number(req.params.id);
     if (!Number.isInteger(subdomainId) || subdomainId < 1) {
       return res.status(400).json({ error: 'invalid_domain' });
@@ -81,13 +84,15 @@ export function clientRouter(db) {
         clicks, impressions, rpm, adx_ctr AS adxCtr, adx_ecpm AS adxEcpm, source
       FROM metrics_daily
       WHERE subdomain_id = @subdomainId
+        AND metric_date BETWEEN @from AND @to
       ORDER BY metric_date ASC
     `).all({
       subdomainId,
-      ownerCutPercent: assignment.ownerCutPercent
+      ownerCutPercent: assignment.ownerCutPercent,
+      ...range
     });
 
-    res.json({ rows });
+    res.json({ range, rows });
   });
 
   return router;
@@ -109,8 +114,9 @@ function applyAdTotals(totals, rows, revenueKey) {
 }
 
 function dataFreshness(db, clientId) {
-  const row = db.prepare(`
-    SELECT MAX(m.metric_date) AS latestMetricDate,
+  const row = metricBounds(db, clientId);
+  const count = db.prepare(`
+    SELECT
       MAX(m.updated_at) AS latestUpdatedAt,
       COUNT(m.id) AS metricRows
     FROM client_subdomains cs
@@ -118,8 +124,41 @@ function dataFreshness(db, clientId) {
     WHERE cs.client_id = ?
   `).get(clientId);
   return {
+    firstMetricDate: row?.firstMetricDate || null,
     latestMetricDate: row?.latestMetricDate || null,
-    latestUpdatedAt: row?.latestUpdatedAt || null,
-    metricRows: Number(row?.metricRows || 0)
+    latestUpdatedAt: count?.latestUpdatedAt || null,
+    metricRows: Number(count?.metricRows || 0)
   };
+}
+
+function parseRange(db, query, clientId) {
+  return normalizeRange(query, metricBounds(db, clientId));
+}
+
+function metricBounds(db, clientId) {
+  return db.prepare(`
+    SELECT
+      MIN(m.metric_date) AS firstMetricDate,
+      MAX(m.metric_date) AS latestMetricDate
+    FROM client_subdomains cs
+    INNER JOIN metrics_daily m ON m.subdomain_id = cs.subdomain_id
+    WHERE cs.client_id = ?
+  `).get(clientId);
+}
+
+function normalizeRange(query = {}, bounds = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const fallbackFrom = bounds?.firstMetricDate || bounds?.latestMetricDate || today;
+  const fallbackTo = bounds?.latestMetricDate || bounds?.firstMetricDate || today;
+  let from = cleanDate(query.from) || fallbackFrom;
+  let to = cleanDate(query.to) || fallbackTo;
+  if (from > to) [from, to] = [to, from];
+  return { from, to };
+}
+
+function cleanDate(value) {
+  const candidate = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
+  const parsed = new Date(`${candidate}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate ? null : candidate;
 }

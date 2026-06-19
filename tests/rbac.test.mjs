@@ -116,6 +116,7 @@ test('client assignments show all stored metrics and reassignment revokes the pr
   const dashboard = await request(app.baseUrl, '/api/client/dashboard', {
     headers: { cookie: nextClientCookie }
   });
+  assert.deepEqual(dashboard.body.range, { from: domain.firstDate, to: domain.latestDate });
   const scopedRow = dashboard.body.rows.find((row) => row.id === domain.id);
   const storedMetrics = app.db.prepare(`
     SELECT SUM(page_views) AS pageViews, SUM(earnings) AS earnings
@@ -128,6 +129,25 @@ test('client assignments show all stored metrics and reassignment revokes the pr
   assert.equal(scopedRow.ownerCut, Number((storedMetrics.earnings * 0.25).toFixed(2)));
   assert.equal(scopedRow.earnings, Number((storedMetrics.earnings * 0.75).toFixed(2)));
 
+  const latestOnly = await request(app.baseUrl, `/api/client/dashboard?from=${domain.latestDate}&to=${domain.latestDate}`, {
+    headers: { cookie: nextClientCookie }
+  });
+  assert.deepEqual(latestOnly.body.range, { from: domain.latestDate, to: domain.latestDate });
+  const latestRow = latestOnly.body.rows.find((row) => row.id === domain.id);
+  const latestMetrics = app.db.prepare(`
+    SELECT page_views AS pageViews, earnings
+    FROM metrics_daily
+    WHERE subdomain_id = ? AND metric_date = ?
+  `).get(domain.id, domain.latestDate);
+  assert.equal(latestRow.pageViews, latestMetrics.pageViews);
+  assert.equal(latestRow.grossEarnings, latestMetrics.earnings);
+  assert.equal(latestRow.earnings, Number((latestMetrics.earnings * 0.75).toFixed(2)));
+
+  const reversedRange = await request(app.baseUrl, `/api/client/dashboard?from=${domain.latestDate}&to=${domain.firstDate}`, {
+    headers: { cookie: nextClientCookie }
+  });
+  assert.deepEqual(reversedRange.body.range, { from: domain.firstDate, to: domain.latestDate });
+
   const daily = await request(app.baseUrl, `/api/client/subdomains/${domain.id}/daily`, {
     headers: { cookie: nextClientCookie }
   });
@@ -139,6 +159,13 @@ test('client assignments show all stored metrics and reassignment revokes the pr
     ORDER BY metric_date ASC
   `).all(domain.id).map((row) => row.date));
   assert.equal(daily.body.rows.reduce((sum, row) => sum + row.grossEarnings, 0), storedMetrics.earnings);
+
+  const filteredDaily = await request(app.baseUrl, `/api/client/subdomains/${domain.id}/daily?from=${domain.latestDate}&to=${domain.latestDate}`, {
+    headers: { cookie: nextClientCookie }
+  });
+  assert.equal(filteredDaily.response.status, 200);
+  assert.deepEqual(filteredDaily.body.rows.map((row) => row.date), [domain.latestDate]);
+  assert.equal(filteredDaily.body.rows[0].grossEarnings, latestMetrics.earnings);
 
   const removed = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment`, {
     method: 'PUT',
@@ -312,6 +339,25 @@ test('admin can inspect daily metrics for any subdomain', async (t) => {
   assert.ok(Array.isArray(daily.body.rows));
   assert.ok(daily.body.rows.length > 0);
   assert.ok(daily.body.rows[0].date);
+
+  const bounds = app.db.prepare(`
+    SELECT MIN(metric_date) AS firstDate, MAX(metric_date) AS latestDate
+    FROM metrics_daily
+    WHERE subdomain_id = ?
+  `).get(subdomain.id);
+  assert.deepEqual(daily.body.range, { from: bounds.firstDate, to: bounds.latestDate });
+
+  const filtered = await request(app.baseUrl, `/api/admin/subdomains/${subdomain.id}/daily?from=${bounds.latestDate}&to=${bounds.latestDate}`, {
+    headers: { cookie }
+  });
+  assert.equal(filtered.response.status, 200);
+  assert.deepEqual(filtered.body.rows.map((row) => row.date), [bounds.latestDate]);
+
+  const reversed = await request(app.baseUrl, `/api/admin/subdomains/${subdomain.id}/daily?from=${bounds.latestDate}&to=${bounds.firstDate}`, {
+    headers: { cookie }
+  });
+  assert.equal(reversed.response.status, 200);
+  assert.deepEqual(reversed.body.range, { from: bounds.firstDate, to: bounds.latestDate });
 });
 
 test('admin can update and reassign a subdomain', async (t) => {
