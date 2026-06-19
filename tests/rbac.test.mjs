@@ -94,6 +94,16 @@ test('assignment dates scope client metrics and reassignment revokes the previou
   assert.equal(assignment.response.status, 200);
   assert.deepEqual(assignment.body.assignment, { clientId: nextClientId, visibleFrom: domain.latestDate });
 
+  const assignmentHistory = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment-history`, {
+    headers: { cookie: adminCookie }
+  });
+  assert.equal(assignmentHistory.response.status, 200);
+  assert.equal(assignmentHistory.body.assignments[0].clientName, 'Date Scoped Client');
+  assert.equal(assignmentHistory.body.assignments[0].visibleFrom, domain.latestDate);
+  assert.equal(assignmentHistory.body.assignments[0].endedAt, null);
+  assert.equal(assignmentHistory.body.assignments[1].clientName, 'Demo Client');
+  assert.ok(assignmentHistory.body.assignments[1].endedAt);
+
   const originalDashboard = await request(app.baseUrl, `/api/client/dashboard?from=${domain.firstDate}&to=${domain.latestDate}`, {
     headers: { cookie: originalClientCookie }
   });
@@ -127,6 +137,11 @@ test('assignment dates scope client metrics and reassignment revokes the previou
   });
   assert.equal(removed.response.status, 200);
   assert.equal(removed.body.assignment, null);
+
+  const closedHistory = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment-history`, {
+    headers: { cookie: adminCookie }
+  });
+  assert.ok(closedHistory.body.assignments.every((item) => item.endedAt));
 
   const afterRemoval = await request(app.baseUrl, `/api/client/dashboard?from=${domain.firstDate}&to=${domain.latestDate}`, {
     headers: { cookie: nextClientCookie }

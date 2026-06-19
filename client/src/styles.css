@@ -897,6 +897,35 @@ select:focus {
   font-size: 12px;
 }
 
+.assignment-history {
+  display: grid;
+  gap: 7px;
+  max-height: 132px;
+  overflow: auto;
+  padding-top: 4px;
+}
+
+.assignment-history div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.assignment-history strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignment-history span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .edit-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

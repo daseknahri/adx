@@ -53,6 +53,20 @@ function migrate(db) {
       PRIMARY KEY (client_id, subdomain_id)
     );
 
+    CREATE TABLE IF NOT EXISTS subdomain_assignment_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subdomain_id INTEGER NOT NULL REFERENCES subdomains(id) ON DELETE CASCADE,
+      client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+      client_name TEXT NOT NULL,
+      visible_from TEXT NOT NULL,
+      visible_until TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      ended_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_assignment_history_subdomain
+      ON subdomain_assignment_history (subdomain_id, ended_at, id DESC);
+
     CREATE TABLE IF NOT EXISTS metrics_daily (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subdomain_id INTEGER NOT NULL REFERENCES subdomains(id) ON DELETE CASCADE,
@@ -112,6 +126,22 @@ function migrate(db) {
     SET visible_from = COALESCE(NULLIF(visible_from, ''), substr(assigned_at, 1, 10), date('now'))
     WHERE visible_from IS NULL OR visible_from = ''
   `).run();
+  db.prepare(`
+    INSERT INTO subdomain_assignment_history (
+      subdomain_id, client_id, client_name, visible_from
+    )
+    SELECT cs.subdomain_id, cs.client_id, c.name,
+      COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10), date('now'))
+    FROM client_subdomains cs
+    INNER JOIN clients c ON c.id = cs.client_id
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM subdomain_assignment_history h
+      WHERE h.subdomain_id = cs.subdomain_id
+        AND h.client_id = cs.client_id
+        AND h.ended_at IS NULL
+    )
+  `).run();
 }
 
 function ensureColumn(db, tableName, columnName, definition) {
@@ -140,6 +170,12 @@ export function seedDatabase(db, config) {
   const assign = db.prepare(`
     INSERT INTO client_subdomains (client_id, subdomain_id, visible_from)
     VALUES (?, ?, ?)
+  `);
+  const insertAssignmentHistory = db.prepare(`
+    INSERT INTO subdomain_assignment_history (
+      subdomain_id, client_id, client_name, visible_from
+    )
+    VALUES (?, ?, ?, ?)
   `);
   const insertMetric = db.prepare(`
     INSERT INTO metrics_daily (
@@ -189,7 +225,9 @@ export function seedDatabase(db, config) {
         notes: 'Seeded sample subdomain.'
       });
       const subdomainId = Number(result.lastInsertRowid);
-      assign.run(clientId, subdomainId, new Date().toISOString().slice(0, 10));
+      const visibleFrom = new Date().toISOString().slice(0, 10);
+      assign.run(clientId, subdomainId, visibleFrom);
+      insertAssignmentHistory.run(subdomainId, clientId, 'Demo Client', visibleFrom);
       for (let offset = 0; offset < 10; offset += 1) {
         const date = new Date();
         date.setDate(date.getDate() - offset);

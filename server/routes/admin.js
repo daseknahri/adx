@@ -254,6 +254,25 @@ export function adminRouter(db, config) {
     res.json({ ok: true });
   });
 
+  router.get('/subdomains/:id/assignment-history', (req, res) => {
+    const subdomainId = Number(req.params.id);
+    if (!Number.isInteger(subdomainId) || subdomainId < 1) {
+      return res.status(400).json({ error: 'invalid_domain' });
+    }
+    const subdomain = db.prepare('SELECT id FROM subdomains WHERE id = ?').get(subdomainId);
+    if (!subdomain) return res.status(404).json({ error: 'not_found' });
+
+    const assignments = db.prepare(`
+      SELECT id, client_id AS clientId, client_name AS clientName,
+        visible_from AS visibleFrom, visible_until AS visibleUntil,
+        created_at AS createdAt, ended_at AS endedAt
+      FROM subdomain_assignment_history
+      WHERE subdomain_id = ?
+      ORDER BY CASE WHEN ended_at IS NULL THEN 0 ELSE 1 END, id DESC
+    `).all(subdomainId);
+    res.json({ assignments });
+  });
+
   router.put('/subdomains/:id/assignment', (req, res) => {
     const subdomainId = Number(req.params.id);
     const clientId = Number(req.body?.clientId || 0);
@@ -273,13 +292,15 @@ export function adminRouter(db, config) {
       `).all(subdomainId);
 
       if (!clientId) {
+        closeActiveAssignmentHistory(db, subdomainId, visibleFrom);
         db.prepare('DELETE FROM client_subdomains WHERE subdomain_id = ?').run(subdomainId);
         return { previous, assignment: null };
       }
 
-      const client = db.prepare('SELECT id FROM clients WHERE id = ?').get(clientId);
+      const client = db.prepare('SELECT id, name FROM clients WHERE id = ?').get(clientId);
       if (!client) return { error: 'client_not_found' };
 
+      closeActiveAssignmentHistory(db, subdomainId, visibleFrom, clientId);
       db.prepare('DELETE FROM client_subdomains WHERE subdomain_id = ? AND client_id != ?')
         .run(subdomainId, clientId);
       const current = db.prepare(`
@@ -298,6 +319,25 @@ export function adminRouter(db, config) {
           INSERT INTO client_subdomains (client_id, subdomain_id, visible_from)
           VALUES (?, ?, ?)
         `).run(clientId, subdomainId, visibleFrom);
+      }
+      const history = db.prepare(`
+        SELECT id
+        FROM subdomain_assignment_history
+        WHERE subdomain_id = ? AND client_id = ? AND ended_at IS NULL
+      `).get(subdomainId, clientId);
+      if (history) {
+        db.prepare(`
+          UPDATE subdomain_assignment_history
+          SET visible_from = ?, visible_until = NULL
+          WHERE id = ?
+        `).run(visibleFrom, history.id);
+      } else {
+        db.prepare(`
+          INSERT INTO subdomain_assignment_history (
+            subdomain_id, client_id, client_name, visible_from
+          )
+          VALUES (?, ?, ?, ?)
+        `).run(subdomainId, clientId, client.name, visibleFrom);
       }
       return { previous, assignment: { clientId, visibleFrom } };
     })();
@@ -389,6 +429,25 @@ function cleanVisibleFrom(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
   const parsed = new Date(`${candidate}T00:00:00Z`);
   return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate ? null : candidate;
+}
+
+function closeActiveAssignmentHistory(db, subdomainId, nextVisibleFrom, keepClientId = null) {
+  const params = {
+    subdomainId,
+    nextVisibleFrom,
+    keepClientId
+  };
+  db.prepare(`
+    UPDATE subdomain_assignment_history
+    SET visible_until = CASE
+          WHEN visible_from < @nextVisibleFrom THEN date(@nextVisibleFrom, '-1 day')
+          ELSE visible_from
+        END,
+        ended_at = CURRENT_TIMESTAMP
+    WHERE subdomain_id = @subdomainId
+      AND ended_at IS NULL
+      AND (@keepClientId IS NULL OR client_id != @keepClientId)
+  `).run(params);
 }
 
 function domainRows(db, range) {

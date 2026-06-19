@@ -997,6 +997,7 @@ function ConfirmDialog({ title, body, confirmLabel, onCancel, onConfirm }) {
 function EditDomainDialog({ row, clients, onCancel, onSave }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [assignmentHistory, setAssignmentHistory] = useState([]);
   const [values, setValues] = useState(() => ({
     domain: row.domain || '',
     category: row.category || 'Content',
@@ -1006,6 +1007,20 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
     clientId: row.clientId ? String(row.clientId) : '',
     visibleFrom: row.visibleFrom || isoDate(new Date())
   }));
+
+  useEffect(() => {
+    let cancelled = false;
+    api(`/api/admin/subdomains/${row.id}/assignment-history`)
+      .then((result) => {
+        if (!cancelled) setAssignmentHistory(result.assignments || []);
+      })
+      .catch(() => {
+        if (!cancelled) setAssignmentHistory([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [row.id]);
 
   async function submit(event) {
     event.preventDefault();
@@ -1063,6 +1078,16 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
             <input value={values.notes} onChange={setField(setValues, 'notes')} />
           </label>
         </div>
+        {assignmentHistory.length ? (
+          <div className="assignment-history" aria-label="Assignment history">
+            {assignmentHistory.map((assignment) => (
+              <div key={assignment.id}>
+                <strong>{assignment.clientName}</strong>
+                <span>{assignment.visibleFrom} to {assignment.visibleUntil || 'Current'}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {error ? <p className="form-error">{error}</p> : null}
         <div className="confirm-actions">
           <button className="ghost-button" type="button" onClick={onCancel} disabled={busy}>
