@@ -54,6 +54,52 @@ button {
     var(--bg);
 }
 
+.app-shell.light-theme {
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --surface-2: #f1f4f9;
+  --line: #d9deea;
+  --line-strong: #aeb7c8;
+  --muted: #667085;
+  --text: #111827;
+  background: #f7f8fb;
+}
+
+.light-theme .topbar,
+.light-theme .footer {
+  background: #ffffff;
+}
+
+.light-theme .icon-button,
+.light-theme .row-action,
+.light-theme .ghost-button,
+.light-theme .date-input,
+.light-theme input,
+.light-theme select,
+.light-theme .view-tabs,
+.light-theme .client-row,
+.light-theme .mini-chart {
+  background: #ffffff;
+  color: var(--text);
+}
+
+.light-theme .domain-table-wrap {
+  background: #ffffff;
+}
+
+.light-theme .domain-table th {
+  background: #f1f4f9;
+  color: #475467;
+}
+
+.light-theme .domain-table td {
+  color: #202938;
+}
+
+.light-theme .domain-table tbody tr:hover {
+  background: #f7f9fd;
+}
+
 .topbar {
   height: 76px;
   display: flex;
@@ -695,6 +741,43 @@ select:focus {
   z-index: 20;
   display: flex;
   justify-content: flex-end;
+}
+
+.confirm-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.confirm-box {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.confirm-box h2,
+.confirm-box p {
+  margin: 0;
+}
+
+.confirm-box p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .drawer-backdrop {

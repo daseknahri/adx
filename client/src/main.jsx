@@ -47,6 +47,7 @@ const datePresets = {
 
 function App() {
   const [user, setUser] = useState(null);
+  const [theme, setTheme] = useState('dark');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -88,15 +89,15 @@ function App() {
   if (!user) return <LoginScreen onLogin={handleLogin} error={error} />;
 
   return (
-    <Shell user={user} onLogout={handleLogout}>
+    <Shell user={user} onLogout={handleLogout} theme={theme} onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
       {user.role === 'admin' ? <AdminConsole /> : <ClientDashboard />}
     </Shell>
   );
 }
 
-function Shell({ user, onLogout, children }) {
+function Shell({ user, onLogout, theme, onToggleTheme, children }) {
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${theme === 'light' ? 'light-theme' : ''}`}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
@@ -107,7 +108,7 @@ function Shell({ user, onLogout, children }) {
           <strong>My Domains</strong>
         </div>
         <div className="topbar-actions">
-          <button className="icon-button" type="button" title="Theme">
+          <button className="icon-button" type="button" title="Theme" onClick={onToggleTheme}>
             <Moon size={17} />
           </button>
           <div className="avatar" title={user.email}>{initials(user.name)}</div>
@@ -188,6 +189,7 @@ function LoginScreen({ onLogin, error }) {
 
 function ClientDashboard() {
   const [range, setRange] = useDateRange();
+  const [compactColumns, setCompactColumns] = useState(false);
   const [data, setData] = useState({ totals: {}, rows: [] });
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -206,12 +208,13 @@ function ClientDashboard() {
   return (
     <section className="workspace">
       <PageTitle title="Salary Dashboard" subtitle="My Domains" />
-      <Controls range={range} setRange={setRange} onRefresh={load} />
+      <Controls range={range} setRange={setRange} onRefresh={load} onColumns={() => setCompactColumns((current) => !current)} />
       <MetricStrip totals={data.totals} />
       <DomainTable
         rows={data.rows}
         loading={loading}
         clientMode
+        compact={compactColumns}
         onView={(row) => setSelected(row)}
       />
       {selected ? (
@@ -224,12 +227,14 @@ function ClientDashboard() {
 function AdminConsole() {
   const [range, setRange] = useDateRange();
   const [view, setView] = useState('domains');
+  const [compactColumns, setCompactColumns] = useState(false);
   const [overview, setOverview] = useState({ rows: [], totals: {}, latestSync: [] });
   const [clients, setClients] = useState([]);
   const [google, setGoogle] = useState({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [selectedDomain, setSelectedDomain] = useState(null);
+  const [deleteDomain, setDeleteDomain] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -259,15 +264,15 @@ function AdminConsole() {
   }
 
   async function deleteSubdomain(row) {
-    if (!window.confirm(`Remove ${row.domain}? Its assignments and stored metrics will be deleted.`)) return;
     await api(`/api/admin/subdomains/${row.id}`, { method: 'DELETE' });
+    setDeleteDomain(null);
     await load();
   }
 
   return (
     <section className="workspace">
       <PageTitle title="Admin Console" subtitle="Clients, subdomains and AdX sync" />
-      <Controls range={range} setRange={setRange} onRefresh={load}>
+      <Controls range={range} setRange={setRange} onRefresh={load} onColumns={() => setCompactColumns((current) => !current)}>
         <button className="primary-button" type="button" onClick={sync}>
           <DatabaseZap size={16} />
           Sync AdX
@@ -294,7 +299,7 @@ function AdminConsole() {
               <h2>AdX Domains</h2>
               <p>{overview.rows.length} tracked rows from Ad Manager</p>
             </div>
-            <button className="ghost-button" type="button">
+            <button className="ghost-button" type="button" onClick={() => setCompactColumns((current) => !current)}>
               Columns
               <ChevronDown size={15} />
             </button>
@@ -302,8 +307,9 @@ function AdminConsole() {
           <DomainTable
             rows={overview.rows}
             loading={loading}
+            compact={compactColumns}
             onView={(row) => setSelectedDomain(row)}
-            onDelete={deleteSubdomain}
+            onDelete={(row) => setDeleteDomain(row)}
           />
         </div>
       )}
@@ -313,6 +319,15 @@ function AdminConsole() {
           range={range}
           dailyPath={`/api/admin/subdomains/${selectedDomain.id}/daily`}
           onClose={() => setSelectedDomain(null)}
+        />
+      ) : null}
+      {deleteDomain ? (
+        <ConfirmDialog
+          title="Remove Subdomain"
+          body={`Remove ${deleteDomain.domain}? Its assignments and stored metrics will be deleted.`}
+          confirmLabel="Remove"
+          onCancel={() => setDeleteDomain(null)}
+          onConfirm={() => deleteSubdomain(deleteDomain)}
         />
       ) : null}
     </section>
@@ -355,6 +370,9 @@ function AdminStatus({ google, message, latestSync }) {
 
 function AdminForms({ clients, onChanged }) {
   const [resetting, setResetting] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearText, setClearText] = useState('');
+  const [deleteClientTarget, setDeleteClientTarget] = useState(null);
   const [client, setClient] = useState({
     name: '',
     company: '',
@@ -420,20 +438,21 @@ function AdminForms({ clients, onChanged }) {
   }
 
   async function deleteClient(item) {
-    if (!window.confirm(`Delete ${item.name}? Their login and domain assignments will be removed.`)) return;
     await api(`/api/admin/clients/${item.id}`, { method: 'DELETE' });
+    setDeleteClientTarget(null);
     onChanged();
   }
 
   async function clearWorkspace() {
-    const confirmation = window.prompt('Type CLEAR to remove all clients, domains, metrics and sync history. Google OAuth stays connected.');
-    if (confirmation !== 'CLEAR') return;
+    if (clearText !== 'CLEAR') return;
     setResetting(true);
     try {
       await api('/api/admin/workspace/clear', {
         method: 'POST',
         body: JSON.stringify({ confirm: 'CLEAR' })
       });
+      setClearOpen(false);
+      setClearText('');
       onChanged();
     } finally {
       setResetting(false);
@@ -491,7 +510,7 @@ function AdminForms({ clients, onChanged }) {
             <h2>Clients</h2>
             <p>{clients.length} accounts</p>
           </div>
-          <button className="ghost-button danger-button" type="button" onClick={clearWorkspace} disabled={resetting}>
+          <button className="ghost-button danger-button" type="button" onClick={() => setClearOpen(true)} disabled={resetting}>
             <Trash2 size={15} />
             Clear Workspace
           </button>
@@ -518,13 +537,74 @@ function AdminForms({ clients, onChanged }) {
                   className="row-action danger"
                   type="button"
                   title="Delete client"
-                  onClick={() => deleteClient(item)}
+                  onClick={() => setDeleteClientTarget(item)}
                 >
                   <Trash2 size={15} />
                 </button>
               </div>
             </div>
           ))}
+        </div>
+      </div>
+      {clearOpen ? (
+        <div className="confirm-panel" role="dialog" aria-modal="true" aria-label="Clear workspace">
+          <div className="confirm-box">
+            <h2>Clear Workspace</h2>
+            <p>Remove all clients, subdomains, metrics and sync history. Admin access and Google OAuth stay connected.</p>
+            <input
+              placeholder="Type CLEAR"
+              value={clearText}
+              onChange={(event) => setClearText(event.target.value)}
+              autoFocus
+            />
+            <div className="confirm-actions">
+              <button className="ghost-button" type="button" onClick={() => { setClearOpen(false); setClearText(''); }}>
+                Cancel
+              </button>
+              <button className="ghost-button danger-button" type="button" onClick={clearWorkspace} disabled={clearText !== 'CLEAR' || resetting}>
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {deleteClientTarget ? (
+        <ConfirmDialog
+          title="Delete Client"
+          body={`Delete ${deleteClientTarget.name}? Their login and domain assignments will be removed.`}
+          confirmLabel="Delete"
+          onCancel={() => setDeleteClientTarget(null)}
+          onConfirm={() => deleteClient(deleteClientTarget)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ConfirmDialog({ title, body, confirmLabel, onCancel, onConfirm }) {
+  const [busy, setBusy] = useState(false);
+
+  async function confirm() {
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="confirm-panel" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="confirm-box">
+        <h2>{title}</h2>
+        <p>{body}</p>
+        <div className="confirm-actions">
+          <button className="ghost-button" type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="ghost-button danger-button" type="button" onClick={confirm} disabled={busy}>
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </div>
@@ -540,7 +620,7 @@ function PageTitle({ title, subtitle }) {
   );
 }
 
-function Controls({ range, setRange, onRefresh, children }) {
+function Controls({ range, setRange, onRefresh, onColumns, children }) {
   return (
     <div className="controls">
       <div className="date-input">
@@ -567,7 +647,7 @@ function Controls({ range, setRange, onRefresh, children }) {
         <RefreshCcw size={15} />
         Refresh
       </button>
-      <button className="ghost-button desktop-only" type="button">
+      <button className="ghost-button desktop-only" type="button" onClick={onColumns}>
         Columns
         <ChevronDown size={15} />
       </button>
@@ -595,7 +675,8 @@ function MetricStrip({ totals = {} }) {
   );
 }
 
-function DomainTable({ rows, loading, clientMode, onView, onDelete }) {
+function DomainTable({ rows, loading, clientMode, compact, onView, onDelete }) {
+  const colSpan = (clientMode ? 6 : 7) + (compact ? 0 : 3);
   return (
     <div className="domain-table-wrap">
       <table className="domain-table">
@@ -604,18 +685,18 @@ function DomainTable({ rows, loading, clientMode, onView, onDelete }) {
             <th>Domain</th>
             {!clientMode ? <th>Client</th> : null}
             <th>Page Views</th>
-            <th>Impressions</th>
-            <th>Clicks</th>
+            {!compact ? <th>Impressions</th> : null}
+            {!compact ? <th>Clicks</th> : null}
             <th>AdX CTR</th>
             <th>AdX eCPM</th>
             <th>Revenue</th>
-            <th>Source</th>
+            {!compact ? <th>Source</th> : null}
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {loading ? (
-            <tr><td className="empty" colSpan={clientMode ? 8 : 9}>Loading...</td></tr>
+            <tr><td className="empty" colSpan={colSpan}>Loading...</td></tr>
           ) : rows.length ? rows.map((row) => (
             <tr key={`${row.id}-${row.clientId || 'client'}`}>
               <td>
@@ -627,12 +708,12 @@ function DomainTable({ rows, loading, clientMode, onView, onDelete }) {
               </td>
               {!clientMode ? <td>{row.clientName || 'Unassigned'}</td> : null}
               <td>{number(row.pageViews)}</td>
-              <td>{number(row.impressions)}</td>
-              <td>{number(row.clicks)}</td>
+              {!compact ? <td>{number(row.impressions)}</td> : null}
+              {!compact ? <td>{number(row.clicks)}</td> : null}
               <td>{percent(row.adxCtr)}</td>
               <td>{money(row.adxEcpm)}</td>
               <td className="money">{money(row.earnings)}</td>
-              <td><span className="source-pill">{row.source || 'empty'}</span></td>
+              {!compact ? <td><span className="source-pill">{row.source || 'empty'}</span></td> : null}
               <td>
                 <div className="row-actions">
                   <button className="row-action" type="button" onClick={() => onView(row)} title="View">
@@ -647,7 +728,7 @@ function DomainTable({ rows, loading, clientMode, onView, onDelete }) {
               </td>
             </tr>
           )) : (
-            <tr><td className="empty" colSpan={clientMode ? 8 : 9}>No results.</td></tr>
+            <tr><td className="empty" colSpan={colSpan}>No results.</td></tr>
           )}
         </tbody>
       </table>
