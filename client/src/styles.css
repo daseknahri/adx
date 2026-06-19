@@ -823,6 +823,24 @@ select:focus {
   background: var(--surface);
 }
 
+.edit-box {
+  width: min(620px, 100%);
+}
+
+.edit-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.edit-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .confirm-box h2,
 .confirm-box p {
   margin: 0;
@@ -921,6 +939,10 @@ select:focus {
 
   .search-input {
     width: 100%;
+  }
+
+  .edit-form {
+    grid-template-columns: 1fr;
   }
 
   .date-input {

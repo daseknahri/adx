@@ -125,6 +125,74 @@ test('admin can inspect daily metrics for any subdomain', async (t) => {
   assert.ok(daily.body.rows[0].date);
 });
 
+test('admin can update and reassign a subdomain', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const sourceClient = app.db.prepare('SELECT * FROM clients WHERE email = ?').get(app.config.seedClientEmail);
+  const createdClient = await request(app.baseUrl, '/api/admin/clients', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({
+      name: 'Second Client',
+      company: 'Second Publisher',
+      email: 'second@example.com',
+      password: 'Second123!',
+      status: 'active',
+      notes: ''
+    })
+  });
+  assert.equal(createdClient.response.status, 201);
+  const nextClientId = createdClient.body.client.id;
+  const subdomain = app.db.prepare(`
+    SELECT s.*
+    FROM subdomains s
+    INNER JOIN client_subdomains cs ON cs.subdomain_id = s.id
+    WHERE cs.client_id = ?
+    ORDER BY s.id
+    LIMIT 1
+  `).get(sourceClient.id);
+
+  const updated = await request(app.baseUrl, `/api/admin/subdomains/${subdomain.id}`, {
+    method: 'PATCH',
+    headers: { cookie },
+    body: JSON.stringify({
+      domain: subdomain.domain,
+      category: 'Premium Recipes',
+      unitPrice: 44.5,
+      rentStatus: 'paused',
+      notes: 'Updated by test'
+    })
+  });
+  assert.equal(updated.response.status, 200);
+
+  const unassigned = await request(app.baseUrl, `/api/admin/subdomains/${subdomain.id}/unassign`, {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ clientId: sourceClient.id })
+  });
+  assert.equal(unassigned.response.status, 200);
+
+  const assigned = await request(app.baseUrl, `/api/admin/subdomains/${subdomain.id}/assign`, {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ clientId: nextClientId })
+  });
+  assert.equal(assigned.response.status, 200);
+
+  const overview = await request(app.baseUrl, '/api/admin/overview', {
+    headers: { cookie }
+  });
+  const row = overview.body.rows.find((item) => item.id === subdomain.id);
+  assert.equal(row.clientId, nextClientId);
+  assert.equal(row.clientName, 'Second Client');
+  assert.equal(row.category, 'Premium Recipes');
+  assert.equal(row.unitPrice, 44.5);
+  assert.equal(row.rentStatus, 'paused');
+  assert.equal(row.notes, 'Updated by test');
+});
+
 test('admin can delete a client account without deleting subdomains', async (t) => {
   const app = await startTestApp();
   t.after(() => app.close());

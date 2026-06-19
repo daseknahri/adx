@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Moon,
+  Pencil,
   PauseCircle,
   PlayCircle,
   PlugZap,
@@ -236,6 +237,7 @@ function AdminConsole() {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedDomain, setSelectedDomain] = useState(null);
+  const [editDomain, setEditDomain] = useState(null);
   const [deleteDomain, setDeleteDomain] = useState(null);
 
   const load = useCallback(async () => {
@@ -283,6 +285,29 @@ function AdminConsole() {
   async function deleteSubdomain(row) {
     await api(`/api/admin/subdomains/${row.id}`, { method: 'DELETE' });
     setDeleteDomain(null);
+    await load();
+  }
+
+  async function updateSubdomain(row, values) {
+    await api(`/api/admin/subdomains/${row.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(values)
+    });
+    const nextClientId = Number(values.clientId || 0);
+    const currentClientId = Number(row.clientId || 0);
+    if (currentClientId && currentClientId !== nextClientId) {
+      await api(`/api/admin/subdomains/${row.id}/unassign`, {
+        method: 'POST',
+        body: JSON.stringify({ clientId: currentClientId })
+      });
+    }
+    if (nextClientId && currentClientId !== nextClientId) {
+      await api(`/api/admin/subdomains/${row.id}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ clientId: nextClientId })
+      });
+    }
+    setEditDomain(null);
     await load();
   }
 
@@ -344,6 +369,7 @@ function AdminConsole() {
             loading={loading}
             compact={compactColumns}
             onView={(row) => setSelectedDomain(row)}
+            onEdit={(row) => setEditDomain(row)}
             onDelete={(row) => setDeleteDomain(row)}
           />
         </div>
@@ -363,6 +389,14 @@ function AdminConsole() {
           confirmLabel="Remove"
           onCancel={() => setDeleteDomain(null)}
           onConfirm={() => deleteSubdomain(deleteDomain)}
+        />
+      ) : null}
+      {editDomain ? (
+        <EditDomainDialog
+          row={editDomain}
+          clients={clients}
+          onCancel={() => setEditDomain(null)}
+          onSave={(values) => updateSubdomain(editDomain, values)}
         />
       ) : null}
     </section>
@@ -690,6 +724,84 @@ function ConfirmDialog({ title, body, confirmLabel, onCancel, onConfirm }) {
   );
 }
 
+function EditDomainDialog({ row, clients, onCancel, onSave }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [values, setValues] = useState(() => ({
+    domain: row.domain || '',
+    category: row.category || 'Content',
+    unitPrice: String(row.unitPrice ?? ''),
+    rentStatus: row.rentStatus || 'active',
+    notes: row.notes || '',
+    clientId: row.clientId ? String(row.clientId) : ''
+  }));
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(values);
+    } catch (saveError) {
+      setError(saveError.message || 'Update failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="confirm-panel" role="dialog" aria-modal="true" aria-label="Edit domain">
+      <form className="confirm-box edit-box" onSubmit={submit}>
+        <h2>Edit Domain</h2>
+        <div className="edit-form">
+          <label>
+            Domain
+            <input value={values.domain} onChange={setField(setValues, 'domain')} required />
+          </label>
+          <label>
+            Category
+            <input value={values.category} onChange={setField(setValues, 'category')} />
+          </label>
+          <label>
+            Unit price (MAD)
+            <input type="number" min="0" step="0.01" value={values.unitPrice} onChange={setField(setValues, 'unitPrice')} />
+          </label>
+          <label>
+            Status
+            <select value={values.rentStatus} onChange={setField(setValues, 'rentStatus')}>
+              <option value="active">active</option>
+              <option value="paused">paused</option>
+              <option value="ended">ended</option>
+            </select>
+          </label>
+          <label>
+            Client
+            <select value={values.clientId} onChange={setField(setValues, 'clientId')}>
+              <option value="">Unassigned</option>
+              {clients.map((client) => (
+                <option value={client.id} key={client.id}>{client.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Notes
+            <input value={values.notes} onChange={setField(setValues, 'notes')} />
+          </label>
+        </div>
+        {error ? <p className="form-error">{error}</p> : null}
+        <div className="confirm-actions">
+          <button className="ghost-button" type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary-button" type="submit" disabled={busy}>
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function PageTitle({ title, subtitle }) {
   return (
     <div className="page-title">
@@ -780,7 +892,7 @@ function MetricStrip({ totals = {} }) {
   );
 }
 
-function DomainTable({ rows, loading, clientMode, compact, onView, onDelete }) {
+function DomainTable({ rows, loading, clientMode, compact, onView, onEdit, onDelete }) {
   const colSpan = (clientMode ? 6 : 7) + (compact ? 0 : 3);
   return (
     <div className="domain-table-wrap">
@@ -824,6 +936,11 @@ function DomainTable({ rows, loading, clientMode, compact, onView, onDelete }) {
                   <button className="row-action" type="button" onClick={() => onView(row)} title="View">
                     <Eye size={15} />
                   </button>
+                  {!clientMode && onEdit ? (
+                    <button className="row-action" type="button" onClick={() => onEdit(row)} title="Edit subdomain">
+                      <Pencil size={15} />
+                    </button>
+                  ) : null}
                   {!clientMode && onDelete ? (
                     <button className="row-action danger" type="button" onClick={() => onDelete(row)} title="Remove subdomain">
                       <Trash2 size={15} />

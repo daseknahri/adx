@@ -301,6 +301,7 @@ function domainRows(db, range) {
       s.category,
       s.unit_price AS unitPrice,
       s.rent_status AS rentStatus,
+      s.notes,
       c.id AS clientId,
       c.name AS clientName,
       COALESCE(SUM(m.visitors), 0) AS visitors,
