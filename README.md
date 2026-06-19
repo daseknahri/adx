@@ -1,0 +1,72 @@
+# AdX Domain Tracker
+
+A deployable web app for managing rented subdomain clients and showing each client
+their assigned Google Ad Manager / AdX numbers.
+
+## What It Does
+
+- Admin dashboard for clients, subdomains, assignment, rent status, and sync actions.
+- Client dashboard for assigned subdomains only.
+- Google Ad Manager OAuth connection and AdX report sync.
+- AdX revenue, CTR, and eCPM columns from an existing interactive report.
+- Optional GA4 sync for visitor columns.
+- SQLite-backed storage mounted at `/data` for Coolify deployment.
+
+## Quick Start
+
+```bash
+npm install
+npm run dev
+```
+
+Open the client dev app at `http://localhost:5173`.
+
+Default seeded accounts:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@example.com` | `ChangeMe123!` |
+| Client | `client@example.com` | `Client123!` |
+
+Change these immediately in production by setting `SEED_ADMIN_EMAIL`,
+`SEED_ADMIN_PASSWORD`, `SEED_CLIENT_EMAIL`, and `SEED_CLIENT_PASSWORD`.
+
+## Production
+
+```bash
+npm run build
+npm start
+```
+
+The API and built React app are served from the same Express process.
+
+## Deployment
+
+Use Coolify with this folder as the app base directory. The production container
+listens on port `8080`, exposes `/health`, and expects persistent SQLite storage
+mounted at `/data`.
+
+Start with [DEPLOY-COOLIFY.md](./DEPLOY-COOLIFY.md), then set these production
+values in Coolify:
+
+- `APP_URL` set to the public HTTPS URL.
+- `DB_PATH=/data/app.db`.
+- Strong `SESSION_SECRET` and 64-character hex `TOKEN_ENCRYPTION_KEY` values.
+- Google OAuth redirect URI:
+  `https://your-domain.example/api/admin/google/oauth/callback`.
+- Google Ad Manager network/report settings:
+  `AD_MANAGER_NETWORK_CODE`, `AD_MANAGER_REPORT_ID`,
+  `AD_MANAGER_REPORT_DIMENSIONS`, and `AD_MANAGER_REPORT_METRICS`.
+
+From the provided Ad Manager screenshot, the likely production values are:
+
+```env
+AD_MANAGER_NETWORK_CODE=23350042371
+AD_MANAGER_REPORT_ID=7704780540
+AD_MANAGER_REPORT_DIMENSIONS=SITE
+AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM
+REPORT_CURRENCY=MAD
+```
+
+Enable GitHub auto-deploys in Coolify only after the first manual deployment
+passes the `/health` check.

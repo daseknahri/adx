@@ -1,0 +1,8 @@
+node_modules/
+server/public/
+.env
+.env.local
+data/
+*.log
+tmp/
+

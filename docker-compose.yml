@@ -1,0 +1,43 @@
+services:
+  adsense-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: adsense-tracker:local
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      APP_URL: ${APP_URL}
+      DB_PATH: /data/app.db
+      SESSION_SECRET: ${SESSION_SECRET}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      SEED_CLIENT_EMAIL: ${SEED_CLIENT_EMAIL}
+      SEED_CLIENT_PASSWORD: ${SEED_CLIENT_PASSWORD}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+      ADSENSE_ACCOUNT_ID: ${ADSENSE_ACCOUNT_ID}
+      GA4_PROPERTY_ID: ${GA4_PROPERTY_ID}
+      ENABLE_GOOGLE_SYNC: ${ENABLE_GOOGLE_SYNC:-false}
+    volumes:
+      - adsense-tracker-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  adsense-tracker-data:
