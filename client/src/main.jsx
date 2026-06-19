@@ -269,6 +269,7 @@ function ClientDashboard() {
       <PageTitle title="Salary Dashboard" subtitle="My Domains" />
       <Controls
         range={range}
+        effectiveRange={data.range}
         setRange={setRange}
         onRefresh={() => load({ silent: true })}
         refreshLabel={refreshing ? 'Updating' : 'Refresh'}
@@ -390,6 +391,7 @@ function AdminConsole() {
       <PageTitle title="Admin Console" subtitle="Clients, subdomains and AdX sync" />
       <Controls
         range={range}
+        effectiveRange={overview.range}
         setRange={setRange}
         onRefresh={refreshLatest}
         refreshLabel="Refresh AdX"
@@ -564,7 +566,7 @@ function AdminForms({ clients, onChanged }) {
   const [subdomain, setSubdomain] = useState({
     domain: '',
     category: 'Content',
-    unitPrice: '25',
+    unitPrice: '0',
     rentStatus: 'active',
     notes: '',
     clientId: '',
@@ -599,7 +601,7 @@ function AdminForms({ clients, onChanged }) {
     setSubdomain({
       domain: '',
       category: 'Content',
-      unitPrice: '25',
+      unitPrice: '0',
       rentStatus: 'active',
       notes: '',
       clientId: '',
@@ -1169,7 +1171,7 @@ function PageTitle({ title, subtitle }) {
   );
 }
 
-function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refresh', refreshDisabled = false, children }) {
+function Controls({ range, effectiveRange, setRange, onRefresh, onColumns, refreshLabel = 'Refresh', refreshDisabled = false, children }) {
   function updateFrom(from) {
     setRange((current) => {
       const to = from && current.to && from > current.to ? from : current.to;
@@ -1214,6 +1216,7 @@ function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refre
           </button>
         ))}
       </div>
+      <span className="range-chip">{rangeLabel(effectiveRange || range)}</span>
       <div className="control-spacer" />
       {children}
       <button className="ghost-button" type="button" onClick={onRefresh} disabled={refreshDisabled}>

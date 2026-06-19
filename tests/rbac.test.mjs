@@ -186,6 +186,49 @@ test('client assignments show all stored metrics and reassignment revokes the pr
   assert.equal(afterRemoval.body.rows.some((row) => row.id === domain.id), false);
 });
 
+test('admin and client date filters read the same stored AdX rows', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  const { cookie: adminCookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const { cookie: clientCookie } = await login(app.baseUrl, app.config.seedClientEmail, app.config.seedClientPassword);
+  const client = app.db.prepare('SELECT id FROM clients WHERE email = ?').get(app.config.seedClientEmail);
+  const metricDate = app.db.prepare(`
+    SELECT MAX(m.metric_date) AS date
+    FROM client_subdomains cs
+    INNER JOIN metrics_daily m ON m.subdomain_id = cs.subdomain_id
+    WHERE cs.client_id = ?
+  `).get(client.id).date;
+
+  const adminOverview = await request(app.baseUrl, `/api/admin/overview?from=${metricDate}&to=${metricDate}`, {
+    headers: { cookie: adminCookie }
+  });
+  const clientDashboard = await request(app.baseUrl, `/api/client/dashboard?from=${metricDate}&to=${metricDate}`, {
+    headers: { cookie: clientCookie }
+  });
+
+  assert.equal(adminOverview.response.status, 200);
+  assert.equal(clientDashboard.response.status, 200);
+  assert.deepEqual(adminOverview.body.range, { from: metricDate, to: metricDate });
+  assert.deepEqual(clientDashboard.body.range, { from: metricDate, to: metricDate });
+
+  for (const clientRow of clientDashboard.body.rows) {
+    const adminRow = adminOverview.body.rows.find((row) => row.id === clientRow.id);
+    assert.ok(adminRow, `admin row missing for ${clientRow.domain}`);
+    assert.equal(clientRow.grossEarnings, adminRow.earnings);
+    assert.equal(clientRow.earnings, adminRow.clientEarnings);
+    assert.equal(clientRow.pageViews, adminRow.pageViews);
+    assert.equal(clientRow.impressions, adminRow.impressions);
+    assert.equal(clientRow.adxCtr, adminRow.adxCtr);
+    assert.equal(clientRow.adxEcpm, adminRow.adxEcpm);
+  }
+
+  const assignedAdminRows = adminOverview.body.rows.filter((row) => row.clientId === client.id);
+  const adminClientNetTotal = Number(assignedAdminRows.reduce((sum, row) => sum + row.clientEarnings, 0).toFixed(2));
+  const clientNetTotal = Number(clientDashboard.body.totals.earnings.toFixed(2));
+  assert.equal(clientNetTotal, adminClientNetTotal);
+});
+
 test('root /api/me matches the contract and returns the current user', async (t) => {
   const app = await startTestApp();
   t.after(() => app.close());

@@ -320,6 +320,19 @@ main {
   font-weight: 700;
 }
 
+.range-chip {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: #090b10;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .view-tabs {
   display: inline-flex;
   gap: 6px;
