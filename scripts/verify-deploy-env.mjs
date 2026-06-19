@@ -4,18 +4,19 @@ const required = [
   'APP_URL',
   'SESSION_SECRET',
   'TOKEN_ENCRYPTION_KEY',
-  'SEED_ADMIN_EMAIL',
-  'SEED_ADMIN_PASSWORD',
-  'SEED_CLIENT_EMAIL',
-  'SEED_CLIENT_PASSWORD'
+  'ADMIN_EMAIL',
+  'ADMIN_PASSWORD'
 ];
 
-const optionalGoogle = [
+const googleOAuth = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
-  'GOOGLE_REDIRECT_URI',
-  'ADSENSE_ACCOUNT_ID',
-  'GA4_PROPERTY_ID'
+  'GOOGLE_REDIRECT_URI'
+];
+
+const adManagerReport = [
+  'AD_MANAGER_NETWORK_CODE',
+  'AD_MANAGER_REPORT_ID'
 ];
 
 const missing = required.filter((name) => !process.env[name]);
@@ -44,9 +45,15 @@ if (process.env.APP_URL && process.env.GOOGLE_REDIRECT_URI) {
   }
 }
 
-const googleMissing = optionalGoogle.filter((name) => !process.env[name]);
-if (googleMissing.length) {
-  warnings.push(`Google sync is not fully configured. Missing: ${googleMissing.join(', ')}`);
+if (process.env.ENABLE_GOOGLE_SYNC === 'true') {
+  const googleMissing = googleOAuth.filter((name) => !process.env[name]);
+  const reportMissing = adManagerReport.filter((name) => !process.env[name]);
+  if (googleMissing.length) {
+    warnings.push(`Google OAuth is incomplete. Missing: ${googleMissing.join(', ')}`);
+  }
+  if (reportMissing.length) {
+    warnings.push(`Ad Manager reporting is incomplete. Missing: ${reportMissing.join(', ')}`);
+  }
 }
 
 if (missing.length) {

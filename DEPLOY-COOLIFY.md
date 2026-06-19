@@ -32,10 +32,8 @@ DB_PATH=/data/app.db
 SESSION_SECRET=replace-with-a-long-random-secret
 TOKEN_ENCRYPTION_KEY=replace-with-64-hex-chars
 
-SEED_ADMIN_EMAIL=admin@example.com
-SEED_ADMIN_PASSWORD=replace-before-production
-SEED_CLIENT_EMAIL=client@example.com
-SEED_CLIENT_PASSWORD=replace-before-production
+ADMIN_EMAIL=owner@example.com
+ADMIN_PASSWORD=replace-with-a-strong-admin-password
 
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
@@ -151,7 +149,8 @@ loaded.
   signed out.
 - Do not rotate `TOKEN_ENCRYPTION_KEY` unless existing encrypted Google tokens
   have been migrated or can be reconnected.
-- Replace seeded passwords before exposing the app publicly.
+- Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` before the first production deploy.
+  They also rotate the single existing admin login on a later redeploy.
 - Restrict admin access and review connected Google scopes before enabling live
   sync.
 - Keep `ENABLE_GOOGLE_SYNC=false` until OAuth, Ad Manager network/report IDs,
