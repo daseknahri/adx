@@ -254,6 +254,16 @@ main {
   border-color: var(--line);
 }
 
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.danger-button {
+  color: #fecdd3;
+  border-color: rgba(251, 113, 133, 0.35);
+}
+
 .control-spacer {
   flex: 1 1 auto;
 }

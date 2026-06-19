@@ -43,6 +43,31 @@ export function adminRouter(db, config) {
     res.json({ clients });
   });
 
+  router.post('/workspace/clear', (req, res) => {
+    if (String(req.body?.confirm || '').trim() !== 'CLEAR') {
+      return res.status(400).json({ error: 'confirmation_required' });
+    }
+
+    const result = db.transaction(() => {
+      const before = {
+        clients: db.prepare('SELECT COUNT(*) AS count FROM clients').get().count,
+        subdomains: db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count,
+        metricRows: db.prepare('SELECT COUNT(*) AS count FROM metrics_daily').get().count
+      };
+
+      db.prepare('DELETE FROM metrics_daily').run();
+      db.prepare('DELETE FROM client_subdomains').run();
+      db.prepare('DELETE FROM users WHERE role = ?').run('client');
+      db.prepare('DELETE FROM clients').run();
+      db.prepare('DELETE FROM subdomains').run();
+      db.prepare('DELETE FROM sync_runs').run();
+      audit(db, req, 'workspace.cleared', 'workspace', null, before);
+      return before;
+    })();
+
+    res.json({ ok: true, cleared: result });
+  });
+
   router.post('/clients', (req, res) => {
     const input = cleanClientInput(req.body);
     if (!input.name || !input.email) return res.status(400).json({ error: 'invalid_client' });

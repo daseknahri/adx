@@ -144,6 +144,39 @@ test('admin can delete a client account without deleting subdomains', async (t) 
   assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count, subdomainCount);
 });
 
+test('admin can clear workspace data while preserving admin and Google connection', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  app.db.prepare(`
+    INSERT INTO google_connections (id, refresh_token, account_id)
+    VALUES (1, 'encrypted-token', '23350042371')
+  `).run();
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const rejected = await request(app.baseUrl, '/api/admin/workspace/clear', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ confirm: 'wrong' })
+  });
+  assert.equal(rejected.response.status, 400);
+
+  const cleared = await request(app.baseUrl, '/api/admin/workspace/clear', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ confirm: 'CLEAR' })
+  });
+
+  assert.equal(cleared.response.status, 200);
+  assert.equal(cleared.body.ok, true);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM users WHERE role = ?').get('admin').count, 1);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM users WHERE role = ?').get('client').count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM clients').get().count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM metrics_daily').get().count, 0);
+  assert.equal(app.db.prepare('SELECT account_id AS accountId FROM google_connections WHERE id = 1').get().accountId, '23350042371');
+});
+
 test('missing Google OAuth config returns a friendly admin error', async (t) => {
   const app = await startTestApp({ googleClientId: '', googleClientSecret: '' });
   t.after(() => app.close());

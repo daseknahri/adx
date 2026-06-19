@@ -343,6 +343,7 @@ function AdminStatus({ google, message, latestSync }) {
 }
 
 function AdminForms({ clients, onChanged }) {
+  const [resetting, setResetting] = useState(false);
   const [client, setClient] = useState({
     name: '',
     company: '',
@@ -413,6 +414,21 @@ function AdminForms({ clients, onChanged }) {
     onChanged();
   }
 
+  async function clearWorkspace() {
+    const confirmation = window.prompt('Type CLEAR to remove all clients, domains, metrics and sync history. Google OAuth stays connected.');
+    if (confirmation !== 'CLEAR') return;
+    setResetting(true);
+    try {
+      await api('/api/admin/workspace/clear', {
+        method: 'POST',
+        body: JSON.stringify({ confirm: 'CLEAR' })
+      });
+      onChanged();
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <div className="client-console">
       <div className="panel forms-panel">
@@ -464,6 +480,10 @@ function AdminForms({ clients, onChanged }) {
             <h2>Clients</h2>
             <p>{clients.length} accounts</p>
           </div>
+          <button className="ghost-button danger-button" type="button" onClick={clearWorkspace} disabled={resetting}>
+            <Trash2 size={15} />
+            Clear Workspace
+          </button>
         </div>
         <div className="client-list clean">
           {clients.map((item) => (
