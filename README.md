@@ -7,6 +7,10 @@ their assigned Google Ad Manager / AdX numbers.
 
 - Admin dashboard for clients, subdomains, assignment, rent status, and sync actions.
 - Client dashboard for assigned subdomains only.
+- Each subdomain assignment has a client access date (defaulting to today), so
+  client metrics begin only from the agreed rental date.
+- Pausing a client immediately blocks new logins and API access while retaining
+  the client, domains, and stored reporting data for later reactivation.
 - Google Ad Manager OAuth connection and AdX report sync.
 - AdX revenue, CTR, eCPM, and impressions from an existing interactive report.
 - Exact selected date/range sync by setting the saved Ad Manager report date range before each run.

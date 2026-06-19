@@ -44,6 +44,36 @@ export function adminRouter(db, config) {
     res.json({ clients });
   });
 
+  router.get('/clients/:id/subdomains', (req, res) => {
+    const clientId = Number(req.params.id);
+    if (!Number.isInteger(clientId) || clientId < 1) {
+      return res.status(400).json({ error: 'invalid_client' });
+    }
+    const client = db.prepare('SELECT id, name FROM clients WHERE id = ?').get(clientId);
+    if (!client) return res.status(404).json({ error: 'not_found' });
+
+    const assigned = db.prepare(`
+      SELECT s.id, s.domain, s.category, s.rent_status AS rentStatus,
+        COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom
+      FROM client_subdomains cs
+      INNER JOIN subdomains s ON s.id = cs.subdomain_id
+      WHERE cs.client_id = ?
+      ORDER BY s.domain ASC
+    `).all(clientId);
+    const available = db.prepare(`
+      SELECT s.id, s.domain, s.category, s.rent_status AS rentStatus
+      FROM subdomains s
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM client_subdomains cs
+        WHERE cs.subdomain_id = s.id
+      )
+      ORDER BY s.domain ASC
+    `).all();
+
+    res.json({ client, assigned, available });
+  });
+
   router.post('/workspace/clear', (req, res) => {
     if (String(req.body?.confirm || '').trim() !== 'CLEAR') {
       return res.status(400).json({ error: 'confirmation_required' });
@@ -224,27 +254,71 @@ export function adminRouter(db, config) {
     res.json({ ok: true });
   });
 
-  router.post('/subdomains/:id/assign', (req, res) => {
+  router.put('/subdomains/:id/assignment', (req, res) => {
     const subdomainId = Number(req.params.id);
-    const clientId = Number(req.body?.clientId);
-    if (!clientId) return res.status(400).json({ error: 'missing_client' });
-    db.prepare(`
-      INSERT OR IGNORE INTO client_subdomains (client_id, subdomain_id)
-      VALUES (?, ?)
-    `).run(clientId, subdomainId);
-    audit(db, req, 'subdomain.assigned', 'subdomain', subdomainId, { clientId });
-    res.json({ ok: true });
+    const clientId = Number(req.body?.clientId || 0);
+    const visibleFrom = cleanVisibleFrom(req.body?.visibleFrom);
+    if (!Number.isInteger(subdomainId) || subdomainId < 1) {
+      return res.status(400).json({ error: 'invalid_domain' });
+    }
+    if (!visibleFrom) return res.status(400).json({ error: 'invalid_visible_from' });
+
+    const result = db.transaction(() => {
+      const subdomain = db.prepare('SELECT id FROM subdomains WHERE id = ?').get(subdomainId);
+      if (!subdomain) return { error: 'not_found' };
+      const previous = db.prepare(`
+        SELECT client_id AS clientId, visible_from AS visibleFrom
+        FROM client_subdomains
+        WHERE subdomain_id = ?
+      `).all(subdomainId);
+
+      if (!clientId) {
+        db.prepare('DELETE FROM client_subdomains WHERE subdomain_id = ?').run(subdomainId);
+        return { previous, assignment: null };
+      }
+
+      const client = db.prepare('SELECT id FROM clients WHERE id = ?').get(clientId);
+      if (!client) return { error: 'client_not_found' };
+
+      db.prepare('DELETE FROM client_subdomains WHERE subdomain_id = ? AND client_id != ?')
+        .run(subdomainId, clientId);
+      const current = db.prepare(`
+        SELECT 1
+        FROM client_subdomains
+        WHERE client_id = ? AND subdomain_id = ?
+      `).get(clientId, subdomainId);
+      if (current) {
+        db.prepare(`
+          UPDATE client_subdomains
+          SET visible_from = ?
+          WHERE client_id = ? AND subdomain_id = ?
+        `).run(visibleFrom, clientId, subdomainId);
+      } else {
+        db.prepare(`
+          INSERT INTO client_subdomains (client_id, subdomain_id, visible_from)
+          VALUES (?, ?, ?)
+        `).run(clientId, subdomainId, visibleFrom);
+      }
+      return { previous, assignment: { clientId, visibleFrom } };
+    })();
+
+    if (result.error === 'not_found') return res.status(404).json({ error: result.error });
+    if (result.error === 'client_not_found') return res.status(404).json({ error: result.error });
+    audit(db, req, result.assignment ? 'subdomain.assigned' : 'subdomain.unassigned', 'subdomain', subdomainId, result);
+    res.json({ ok: true, assignment: result.assignment });
+  });
+
+  router.post('/subdomains/:id/assign', (req, res) => {
+    req.url = `/subdomains/${req.params.id}/assignment`;
+    req.method = 'PUT';
+    router.handle(req, res);
   });
 
   router.post('/subdomains/:id/unassign', (req, res) => {
-    const subdomainId = Number(req.params.id);
-    const clientId = Number(req.body?.clientId);
-    db.prepare(`
-      DELETE FROM client_subdomains
-      WHERE client_id = ? AND subdomain_id = ?
-    `).run(clientId, subdomainId);
-    audit(db, req, 'subdomain.unassigned', 'subdomain', subdomainId, { clientId });
-    res.json({ ok: true });
+    req.body = { ...(req.body || {}), clientId: null };
+    req.url = `/subdomains/${req.params.id}/assignment`;
+    req.method = 'PUT';
+    router.handle(req, res);
   });
 
   router.post('/sync/google', async (req, res) => {
@@ -310,6 +384,13 @@ function cleanSubdomainInput(body) {
   };
 }
 
+function cleanVisibleFrom(value) {
+  const candidate = String(value || new Date().toISOString().slice(0, 10)).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
+  const parsed = new Date(`${candidate}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== candidate ? null : candidate;
+}
+
 function domainRows(db, range) {
   return db.prepare(`
     SELECT
@@ -321,6 +402,7 @@ function domainRows(db, range) {
       s.notes,
       c.id AS clientId,
       c.name AS clientName,
+      COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom,
       COALESCE(SUM(m.visitors), 0) AS visitors,
       COALESCE(SUM(m.page_views), 0) AS pageViews,
       COALESCE(AVG(NULLIF(m.bounce_rate, 0)), 0) AS bounceRate,

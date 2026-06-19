@@ -48,6 +48,7 @@ function migrate(db) {
     CREATE TABLE IF NOT EXISTS client_subdomains (
       client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
       subdomain_id INTEGER NOT NULL REFERENCES subdomains(id) ON DELETE CASCADE,
+      visible_from TEXT,
       assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (client_id, subdomain_id)
     );
@@ -105,6 +106,12 @@ function migrate(db) {
   `);
   ensureColumn(db, 'metrics_daily', 'adx_ctr', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'metrics_daily', 'adx_ecpm', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'client_subdomains', 'visible_from', 'TEXT');
+  db.prepare(`
+    UPDATE client_subdomains
+    SET visible_from = COALESCE(NULLIF(visible_from, ''), substr(assigned_at, 1, 10), date('now'))
+    WHERE visible_from IS NULL OR visible_from = ''
+  `).run();
 }
 
 function ensureColumn(db, tableName, columnName, definition) {
@@ -131,8 +138,8 @@ export function seedDatabase(db, config) {
     VALUES (@domain, @category, @unitPrice, @rentStatus, @notes)
   `);
   const assign = db.prepare(`
-    INSERT INTO client_subdomains (client_id, subdomain_id)
-    VALUES (?, ?)
+    INSERT INTO client_subdomains (client_id, subdomain_id, visible_from)
+    VALUES (?, ?, ?)
   `);
   const insertMetric = db.prepare(`
     INSERT INTO metrics_daily (
@@ -182,7 +189,7 @@ export function seedDatabase(db, config) {
         notes: 'Seeded sample subdomain.'
       });
       const subdomainId = Number(result.lastInsertRowid);
-      assign.run(clientId, subdomainId);
+      assign.run(clientId, subdomainId, new Date().toISOString().slice(0, 10));
       for (let offset = 0; offset < 10; offset += 1) {
         const date = new Date();
         date.setDate(date.getDate() - offset);

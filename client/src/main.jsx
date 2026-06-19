@@ -10,6 +10,7 @@ import {
   EyeOff,
   Globe2,
   LayoutDashboard,
+  ListPlus,
   LogOut,
   Moon,
   Pencil,
@@ -202,17 +203,37 @@ function ClientDashboard() {
   const [data, setData] = useState({ totals: {}, rows: [] });
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [accessError, setAccessError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await api(`/api/client/dashboard?${rangeQuery(range)}`);
-    setData(result);
-    setLoading(false);
+    try {
+      const result = await api(`/api/client/dashboard?${rangeQuery(range)}`);
+      setData(result);
+      setAccessError('');
+    } catch (error) {
+      setAccessError(error.message || 'Unable to load dashboard');
+    } finally {
+      setLoading(false);
+    }
   }, [range]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const refreshTimer = window.setInterval(load, 60_000);
+    return () => window.clearInterval(refreshTimer);
+  }, [load]);
+
+  if (accessError === 'client_paused') {
+    return (
+      <section className="workspace">
+        <PageTitle title="Dashboard Paused" subtitle="Your access is temporarily unavailable." />
+      </section>
+    );
+  }
 
   return (
     <section className="workspace">
@@ -303,16 +324,10 @@ function AdminConsole() {
     });
     const nextClientId = Number(values.clientId || 0);
     const currentClientId = Number(row.clientId || 0);
-    if (currentClientId && currentClientId !== nextClientId) {
-      await api(`/api/admin/subdomains/${row.id}/unassign`, {
-        method: 'POST',
-        body: JSON.stringify({ clientId: currentClientId })
-      });
-    }
-    if (nextClientId && currentClientId !== nextClientId) {
-      await api(`/api/admin/subdomains/${row.id}/assign`, {
-        method: 'POST',
-        body: JSON.stringify({ clientId: nextClientId })
+    if (currentClientId !== nextClientId || row.visibleFrom !== values.visibleFrom) {
+      await api(`/api/admin/subdomains/${row.id}/assignment`, {
+        method: 'PUT',
+        body: JSON.stringify({ clientId: nextClientId || null, visibleFrom: values.visibleFrom })
       });
     }
     setEditDomain(null);
@@ -484,6 +499,7 @@ function AdminForms({ clients, onChanged }) {
   const [clearText, setClearText] = useState('');
   const [editClientTarget, setEditClientTarget] = useState(null);
   const [deleteClientTarget, setDeleteClientTarget] = useState(null);
+  const [assignmentClientTarget, setAssignmentClientTarget] = useState(null);
   const [client, setClient] = useState({
     name: '',
     company: '',
@@ -498,7 +514,8 @@ function AdminForms({ clients, onChanged }) {
     unitPrice: '25',
     rentStatus: 'active',
     notes: '',
-    clientId: ''
+    clientId: '',
+    visibleFrom: isoDate(new Date())
   });
 
   async function createClient(event) {
@@ -520,7 +537,7 @@ function AdminForms({ clients, onChanged }) {
     if (subdomain.clientId) {
       await api(`/api/admin/subdomains/${created.subdomain.id}/assign`, {
         method: 'POST',
-        body: JSON.stringify({ clientId: Number(subdomain.clientId) })
+        body: JSON.stringify({ clientId: Number(subdomain.clientId), visibleFrom: subdomain.visibleFrom })
       });
     }
     setSubdomain({
@@ -529,7 +546,8 @@ function AdminForms({ clients, onChanged }) {
       unitPrice: '25',
       rentStatus: 'active',
       notes: '',
-      clientId: ''
+      clientId: '',
+      visibleFrom: isoDate(new Date())
     });
     onChanged();
   }
@@ -649,6 +667,10 @@ function AdminForms({ clients, onChanged }) {
               ))}
             </select>
           </label>
+          <label>
+            Client access begins
+            <input type="date" value={subdomain.visibleFrom} onChange={setField(setSubdomain, 'visibleFrom')} disabled={!subdomain.clientId} />
+          </label>
           <button className="secondary-button" type="submit">
             <Globe2 size={15} />
             Add Domain
@@ -676,6 +698,14 @@ function AdminForms({ clients, onChanged }) {
               <em className={item.status}>{item.status}</em>
               <span>{item.subdomainCount} domains</span>
               <div className="row-actions">
+                <button
+                  className="row-action"
+                  type="button"
+                  title="Manage client subdomains"
+                  onClick={() => setAssignmentClientTarget(item)}
+                >
+                  <ListPlus size={15} />
+                </button>
                 <button
                   className="row-action"
                   type="button"
@@ -741,6 +771,13 @@ function AdminForms({ clients, onChanged }) {
           row={editClientTarget}
           onCancel={() => setEditClientTarget(null)}
           onSave={(values) => updateClient(editClientTarget, values)}
+        />
+      ) : null}
+      {assignmentClientTarget ? (
+        <ClientDomainsDialog
+          client={assignmentClientTarget}
+          onCancel={() => setAssignmentClientTarget(null)}
+          onChanged={onChanged}
         />
       ) : null}
     </div>
@@ -827,6 +864,106 @@ function EditClientDialog({ row, onCancel, onSave }) {
   );
 }
 
+function ClientDomainsDialog({ client, onCancel, onChanged }) {
+  const [data, setData] = useState({ assigned: [], available: [] });
+  const [selectedDomainId, setSelectedDomainId] = useState('');
+  const [visibleFrom, setVisibleFrom] = useState(() => isoDate(new Date()));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    const result = await api(`/api/admin/clients/${client.id}/subdomains`);
+    setData(result);
+  }, [client.id]);
+
+  useEffect(() => {
+    load().catch((loadError) => setError(loadError.message || 'Unable to load subdomains'));
+  }, [load]);
+
+  async function addDomain(event) {
+    event.preventDefault();
+    if (!selectedDomainId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/api/admin/subdomains/${selectedDomainId}/assignment`, {
+        method: 'PUT',
+        body: JSON.stringify({ clientId: client.id, visibleFrom })
+      });
+      setSelectedDomainId('');
+      await Promise.all([load(), onChanged()]);
+    } catch (assignmentError) {
+      setError(assignmentError.message || 'Unable to assign subdomain');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeDomain(domain) {
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/api/admin/subdomains/${domain.id}/assignment`, {
+        method: 'PUT',
+        body: JSON.stringify({ clientId: null, visibleFrom: isoDate(new Date()) })
+      });
+      await Promise.all([load(), onChanged()]);
+    } catch (assignmentError) {
+      setError(assignmentError.message || 'Unable to remove subdomain');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="confirm-panel" role="dialog" aria-modal="true" aria-label="Manage client subdomains">
+      <div className="confirm-box assignment-box">
+        <div className="panel-heading">
+          <div>
+            <h2>{client.name} domains</h2>
+            <p>Only metrics from each access date are visible to this client.</p>
+          </div>
+          <button className="icon-button" type="button" title="Close" onClick={onCancel} disabled={busy}>x</button>
+        </div>
+        <form className="assignment-form" onSubmit={addDomain}>
+          <label>
+            Available subdomain
+            <select value={selectedDomainId} onChange={(event) => setSelectedDomainId(event.target.value)} disabled={busy || !data.available.length}>
+              <option value="">{data.available.length ? 'Choose a subdomain' : 'No unassigned subdomains'}</option>
+              {data.available.map((domain) => (
+                <option value={domain.id} key={domain.id}>{domain.domain}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Client access begins
+            <input type="date" value={visibleFrom} onChange={(event) => setVisibleFrom(event.target.value)} disabled={busy} />
+          </label>
+          <button className="secondary-button" type="submit" disabled={!selectedDomainId || busy}>
+            <Plus size={15} />
+            Add Domain
+          </button>
+        </form>
+        <div className="assignment-list">
+          {data.assigned.map((domain) => (
+            <div className="assignment-row" key={domain.id}>
+              <div>
+                <strong>{domain.domain}</strong>
+                <span>Access from {domain.visibleFrom}</span>
+              </div>
+              <button className="row-action danger" type="button" title="Remove from client" onClick={() => removeDomain(domain)} disabled={busy}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+          {!data.assigned.length ? <p className="empty-assignment">No subdomains assigned.</p> : null}
+        </div>
+        {error ? <p className="form-error">{error}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 function ConfirmDialog({ title, body, confirmLabel, onCancel, onConfirm }) {
   const [busy, setBusy] = useState(false);
 
@@ -866,7 +1003,8 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
     unitPrice: String(row.unitPrice ?? ''),
     rentStatus: row.rentStatus || 'active',
     notes: row.notes || '',
-    clientId: row.clientId ? String(row.clientId) : ''
+    clientId: row.clientId ? String(row.clientId) : '',
+    visibleFrom: row.visibleFrom || isoDate(new Date())
   }));
 
   async function submit(event) {
@@ -915,6 +1053,10 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
                 <option value={client.id} key={client.id}>{client.name}</option>
               ))}
             </select>
+          </label>
+          <label>
+            Client access begins
+            <input type="date" value={values.visibleFrom} onChange={setField(setValues, 'visibleFrom')} disabled={!values.clientId} />
           </label>
           <label>
             Notes

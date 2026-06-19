@@ -53,6 +53,87 @@ test('client dashboard only returns assigned subdomains', async (t) => {
   assert.equal(dashboard.body.rows.some((row) => row.domain === 'private.example.com'), false);
 });
 
+test('assignment dates scope client metrics and reassignment revokes the previous client', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  const { cookie: adminCookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const { cookie: originalClientCookie } = await login(app.baseUrl, app.config.seedClientEmail, app.config.seedClientPassword);
+  const originalClient = app.db.prepare('SELECT id FROM clients WHERE email = ?').get(app.config.seedClientEmail);
+  const domain = app.db.prepare(`
+    SELECT s.id, MIN(m.metric_date) AS firstDate, MAX(m.metric_date) AS latestDate
+    FROM subdomains s
+    INNER JOIN client_subdomains cs ON cs.subdomain_id = s.id
+    INNER JOIN metrics_daily m ON m.subdomain_id = s.id
+    WHERE cs.client_id = ?
+    GROUP BY s.id
+    ORDER BY s.id
+    LIMIT 1
+  `).get(originalClient.id);
+
+  const createdClient = await request(app.baseUrl, '/api/admin/clients', {
+    method: 'POST',
+    headers: { cookie: adminCookie },
+    body: JSON.stringify({
+      name: 'Date Scoped Client',
+      company: '',
+      email: 'date-scoped@example.com',
+      password: 'DateScoped123!',
+      status: 'active',
+      notes: ''
+    })
+  });
+  assert.equal(createdClient.response.status, 201);
+  const nextClientId = createdClient.body.client.id;
+
+  const assignment = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment`, {
+    method: 'PUT',
+    headers: { cookie: adminCookie },
+    body: JSON.stringify({ clientId: nextClientId, visibleFrom: domain.latestDate })
+  });
+  assert.equal(assignment.response.status, 200);
+  assert.deepEqual(assignment.body.assignment, { clientId: nextClientId, visibleFrom: domain.latestDate });
+
+  const originalDashboard = await request(app.baseUrl, `/api/client/dashboard?from=${domain.firstDate}&to=${domain.latestDate}`, {
+    headers: { cookie: originalClientCookie }
+  });
+  assert.equal(originalDashboard.response.status, 200);
+  assert.equal(originalDashboard.body.rows.some((row) => row.id === domain.id), false);
+
+  const { cookie: nextClientCookie } = await login(app.baseUrl, 'date-scoped@example.com', 'DateScoped123!');
+  const dashboard = await request(app.baseUrl, `/api/client/dashboard?from=${domain.firstDate}&to=${domain.latestDate}`, {
+    headers: { cookie: nextClientCookie }
+  });
+  const scopedRow = dashboard.body.rows.find((row) => row.id === domain.id);
+  const latestMetric = app.db.prepare(`
+    SELECT page_views AS pageViews, earnings
+    FROM metrics_daily
+    WHERE subdomain_id = ? AND metric_date = ?
+  `).get(domain.id, domain.latestDate);
+  assert.equal(scopedRow.visibleFrom, domain.latestDate);
+  assert.equal(scopedRow.pageViews, latestMetric.pageViews);
+  assert.equal(scopedRow.earnings, latestMetric.earnings);
+
+  const daily = await request(app.baseUrl, `/api/client/subdomains/${domain.id}/daily?from=${domain.firstDate}&to=${domain.latestDate}`, {
+    headers: { cookie: nextClientCookie }
+  });
+  assert.equal(daily.response.status, 200);
+  assert.deepEqual(daily.body.rows.map((row) => row.date), [domain.latestDate]);
+
+  const removed = await request(app.baseUrl, `/api/admin/subdomains/${domain.id}/assignment`, {
+    method: 'PUT',
+    headers: { cookie: adminCookie },
+    body: JSON.stringify({ clientId: null, visibleFrom: domain.latestDate })
+  });
+  assert.equal(removed.response.status, 200);
+  assert.equal(removed.body.assignment, null);
+
+  const afterRemoval = await request(app.baseUrl, `/api/client/dashboard?from=${domain.firstDate}&to=${domain.latestDate}`, {
+    headers: { cookie: nextClientCookie }
+  });
+  assert.equal(afterRemoval.body.rows.some((row) => row.id === domain.id), false);
+});
+
 test('root /api/me matches the contract and returns the current user', async (t) => {
   const app = await startTestApp();
   t.after(() => app.close());
