@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity,
@@ -227,8 +227,9 @@ function ClientDashboard() {
 function AdminConsole() {
   const [range, setRange] = useDateRange();
   const [view, setView] = useState('domains');
+  const [tableSearch, setTableSearch] = useState('');
   const [compactColumns, setCompactColumns] = useState(false);
-  const [overview, setOverview] = useState({ rows: [], totals: {}, latestSync: [] });
+  const [overview, setOverview] = useState({ rows: [], totals: {}, latestSync: [], syncSummary: {} });
   const [clients, setClients] = useState([]);
   const [google, setGoogle] = useState({});
   const [loading, setLoading] = useState(true);
@@ -285,6 +286,8 @@ function AdminConsole() {
     await load();
   }
 
+  const visibleRows = useMemo(() => filterRows(overview.rows, tableSearch), [overview.rows, tableSearch]);
+
   return (
     <section className="workspace">
       <PageTitle title="Admin Console" subtitle="Clients, subdomains and AdX sync" />
@@ -301,7 +304,8 @@ function AdminConsole() {
           Sync Range
         </button>
       </Controls>
-      <AdminStatus google={google} message={message} latestSync={overview.latestSync} />
+      <AdminStatus google={google} message={message} latestSync={overview.latestSync} syncSummary={overview.syncSummary} />
+      <SyncHistory runs={overview.latestSync} />
       <MetricStrip totals={overview.totals} />
       <div className="view-tabs" role="tablist" aria-label="Admin sections">
         <button className={view === 'domains' ? 'tab active' : 'tab'} type="button" onClick={() => setView('domains')}>
@@ -320,15 +324,23 @@ function AdminConsole() {
           <div className="panel-heading">
             <div>
               <h2>AdX Domains</h2>
-              <p>{overview.rows.length} tracked rows from Ad Manager</p>
+              <p>{visibleRows.length} of {overview.rows.length} tracked domains</p>
             </div>
-            <button className="ghost-button" type="button" onClick={() => setCompactColumns((current) => !current)}>
-              Columns
-              <ChevronDown size={15} />
-            </button>
+            <div className="table-tools">
+              <input
+                className="search-input"
+                placeholder="Search domains or clients"
+                value={tableSearch}
+                onChange={(event) => setTableSearch(event.target.value)}
+              />
+              <button className="ghost-button" type="button" onClick={() => setCompactColumns((current) => !current)}>
+                Columns
+                <ChevronDown size={15} />
+              </button>
+            </div>
           </div>
           <DomainTable
-            rows={overview.rows}
+            rows={visibleRows}
             loading={loading}
             compact={compactColumns}
             onView={(row) => setSelectedDomain(row)}
@@ -357,10 +369,13 @@ function AdminConsole() {
   );
 }
 
-function AdminStatus({ google, message, latestSync }) {
+function AdminStatus({ google, message, latestSync, syncSummary = {} }) {
   const latest = latestSync?.[0];
   const connectionLabel = google.needsReconnectForDateSync ? 'Reconnect for dates' : (google.connected ? 'Connected' : 'Not connected');
   const actionLabel = google.connected || google.needsReconnectForDateSync ? 'Reconnect' : 'Connect';
+  const freshnessLabel = syncSummary.latestMetricDate
+    ? `${syncSummary.latestMetricDate}${syncSummary.staleDays ? ` (${syncSummary.staleDays}d old)` : ''}`
+    : 'No data';
   return (
     <div className="status-rail">
       <div>
@@ -381,14 +396,29 @@ function AdminStatus({ google, message, latestSync }) {
       </div>
       <div>
         <RefreshCcw size={18} />
-        <span>Sync</span>
-        <strong>{latest ? latest.status : 'Ready'}</strong>
+        <span>Data Freshness</span>
+        <strong>{freshnessLabel}</strong>
       </div>
       <div>
         <Activity size={18} />
         <span>Status</span>
         <strong>{message || latest?.message || 'Waiting'}</strong>
       </div>
+    </div>
+  );
+}
+
+function SyncHistory({ runs = [] }) {
+  if (!runs.length) return null;
+  return (
+    <div className="sync-history" aria-label="Recent sync history">
+      {runs.slice(0, 4).map((run, index) => (
+        <div className={`sync-run ${run.status}`} key={`${run.startedAt}-${index}`}>
+          <span>{run.status}</span>
+          <strong>{number(run.rowsSynced)} rows</strong>
+          <em>{formatDateTime(run.finishedAt || run.startedAt)}</em>
+        </div>
+      ))}
     </div>
   );
 }
@@ -873,6 +903,18 @@ function rangeQuery(range) {
   return new URLSearchParams({ from: range.from, to: range.to }).toString();
 }
 
+function filterRows(rows, query) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((row) => [
+    row.domain,
+    row.clientName,
+    row.category,
+    row.rentStatus,
+    row.source
+  ].some((value) => String(value || '').toLowerCase().includes(needle)));
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: 'include',
@@ -913,6 +955,16 @@ function money(value) {
 function percent(value) {
   const numeric = Number(value || 0);
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(numeric > 1 ? numeric : numeric * 100)}%`;
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Not finished';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(`${String(value).replace(' ', 'T')}Z`));
 }
 
 createRoot(document.getElementById('root')).render(<App />);

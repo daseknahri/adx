@@ -40,6 +40,14 @@ test('admin mock Google sync writes one metric row per domain per date', async (
   assert.equal(rows.every((row) => row.adxCtr > 0), true);
   assert.equal(rows.every((row) => row.adxEcpm > 0), true);
 
+  const overview = await request(app.baseUrl, '/api/admin/overview', {
+    headers: { cookie }
+  });
+  assert.equal(overview.response.status, 200);
+  assert.equal(overview.body.syncSummary.latestMetricDate, '2026-06-18');
+  assert.equal(overview.body.syncSummary.firstMetricDate, '2026-06-17');
+  assert.equal(overview.body.syncSummary.metricRows, domainCount * 2);
+
   const syncRun = app.db.prepare(`
     SELECT provider, status, rows_synced AS rowsSynced, message
     FROM sync_runs

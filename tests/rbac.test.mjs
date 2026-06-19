@@ -30,6 +30,8 @@ test('RBAC protects admin and client APIs by role', async (t) => {
   });
   assert.equal(adminOverview.response.status, 200);
   assert.ok(Array.isArray(adminOverview.body.rows));
+  assert.ok(adminOverview.body.syncSummary);
+  assert.equal(typeof adminOverview.body.syncSummary.metricRows, 'number');
 });
 
 test('client dashboard only returns assigned subdomains', async (t) => {

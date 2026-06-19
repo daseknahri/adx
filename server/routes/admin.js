@@ -27,8 +27,9 @@ export function adminRouter(db, config) {
       ORDER BY id DESC
       LIMIT 5
     `).all();
+    const syncSummary = dataFreshness(db);
 
-    res.json({ range, totals, rows, latestSync });
+    res.json({ range, totals, rows, latestSync, syncSummary });
   });
 
   router.get('/clients', (req, res) => {
@@ -329,4 +330,31 @@ function averageNonZero(values) {
   const clean = values.map(Number).filter((value) => value > 0);
   if (!clean.length) return 0;
   return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function dataFreshness(db) {
+  const row = db.prepare(`
+    SELECT
+      MIN(metric_date) AS firstMetricDate,
+      MAX(metric_date) AS latestMetricDate,
+      MAX(updated_at) AS latestUpdatedAt,
+      COUNT(*) AS metricRows
+    FROM metrics_daily
+    WHERE source IN ('admanager', 'adsense', 'ga4', 'mock')
+  `).get();
+  const today = new Date().toISOString().slice(0, 10);
+  const latestMetricDate = row?.latestMetricDate || null;
+  return {
+    firstMetricDate: row?.firstMetricDate || null,
+    latestMetricDate,
+    latestUpdatedAt: row?.latestUpdatedAt || null,
+    metricRows: Number(row?.metricRows || 0),
+    staleDays: latestMetricDate ? daysBetween(latestMetricDate, today) : null
+  };
+}
+
+function daysBetween(from, to) {
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  return Math.max(0, Math.round((end - start) / 86_400_000));
 }
