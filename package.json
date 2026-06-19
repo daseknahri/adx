@@ -11,7 +11,7 @@
     "build": "vite build --outDir server/public",
     "start": "node server/index.js",
     "test": "node --test",
-    "check": "node --check server/index.js && node --check scripts/dev.mjs && node --check scripts/smoke.mjs"
+    "check": "node --check server/index.js && node --check server/tasks/cron-refresh.mjs && node --check scripts/dev.mjs && node --check scripts/smoke.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",

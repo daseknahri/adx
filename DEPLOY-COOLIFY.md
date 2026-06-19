@@ -62,18 +62,18 @@ value for `TOKEN_ENCRYPTION_KEY`.
 ## Automatic AdX Refresh
 
 Set `CRON_SECRET` to a long random value if you want Coolify to refresh AdX data
-without opening the dashboard. Then add a Coolify scheduled task that calls:
+without opening the dashboard. Then add a Coolify scheduled task that runs this
+command inside the app container:
 
 ```bash
-curl -fsS -X POST \
-  -H "Authorization: Bearer $CRON_SECRET" \
-  https://reports.example.com/api/cron/sync/google/latest
+node server/tasks/cron-refresh.mjs
 ```
 
-Use the same public domain as `APP_URL`. A good starting schedule is every hour
-while the day is active, or once per day if you only need finalized historical
-numbers. The endpoint refreshes from the newest stored metric date through
-today, and the sync history in the admin dashboard will show the result.
+This command reads `CRON_SECRET` from the app environment and calls the app
+internally. A good starting schedule is every hour while the day is active, or
+once per day if you only need finalized historical numbers. The endpoint
+refreshes from the newest stored metric date through today, and the sync history
+in the admin dashboard will show the result.
 
 ## Google Ad Manager OAuth Setup
 
