@@ -67,6 +67,53 @@ test('clients cannot run mock Google sync', async (t) => {
   assert.equal(sync.body.error, 'forbidden');
 });
 
+test('admin latest Google refresh starts at the newest stored sync date', async (t) => {
+  const app = await startTestApp({ enableGoogleSync: false });
+  t.after(() => app.close());
+
+  const domainCount = app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count;
+  const today = isoOffset(0);
+  const yesterday = isoOffset(-1);
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+
+  const initial = await request(app.baseUrl, '/api/admin/sync/google', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ from: yesterday, to: yesterday })
+  });
+
+  assert.equal(initial.response.status, 200);
+  assert.equal(initial.body.ok, true);
+  assert.deepEqual(initial.body.range, { from: yesterday, to: yesterday });
+
+  const latest = await request(app.baseUrl, '/api/admin/sync/google/latest', {
+    method: 'POST',
+    headers: { cookie }
+  });
+
+  assert.equal(latest.response.status, 200);
+  assert.equal(latest.body.ok, true);
+  assert.deepEqual(latest.body.range, { from: yesterday, to: today });
+  assert.equal(latest.body.rowsSynced, domainCount * listDates(yesterday, today).length);
+});
+
+function isoOffset(offset) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function listDates(from, to) {
+  const dates = [];
+  const cursor = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
 test('connected Google OAuth uses Ad Manager even when demo env flag is false', async (t) => {
   const app = await startTestApp({
     enableGoogleSync: false,

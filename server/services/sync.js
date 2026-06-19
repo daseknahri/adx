@@ -58,11 +58,18 @@ export async function syncGoogleReports(db, config, range) {
       sourceMode
     );
     finishRun(db, syncRunId, 'success', `Synced ${rowsSynced} domain rows`, rowsSynced);
-    return { ok: true, syncRunId, rowsSynced, mode: sourceMode };
+    return { ok: true, syncRunId, rowsSynced, mode: sourceMode, range };
   } catch (error) {
     finishRun(db, syncRunId, 'failed', error.message, 0);
     return { ok: false, syncRunId, error: error.message };
   }
+}
+
+export async function syncGoogleLatest(db, config) {
+  const today = todayIso();
+  const latest = latestSyncedDate(db);
+  const from = latest && latest <= today ? latest : today;
+  return syncGoogleReports(db, config, { from, to: today });
 }
 
 function startRun(db, provider) {
@@ -84,6 +91,15 @@ function finishRun(db, id, status, message, rowsSynced) {
 function hasGoogleConnection(db) {
   const row = db.prepare('SELECT refresh_token AS refreshToken FROM google_connections WHERE id = 1').get();
   return Boolean(row?.refreshToken);
+}
+
+function latestSyncedDate(db) {
+  const row = db.prepare(`
+    SELECT MAX(metric_date) AS latestDate
+    FROM metrics_daily
+    WHERE source IN ('admanager', 'adsense', 'ga4', 'mock')
+  `).get();
+  return row?.latestDate || null;
 }
 
 function writeMetrics(db, domains, range, revenueRows, ga4Rows, sourceMode) {
@@ -194,4 +210,8 @@ function listDates(from, to) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return dates.length ? dates : [to];
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
 }

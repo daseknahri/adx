@@ -10,6 +10,7 @@ their assigned Google Ad Manager / AdX numbers.
 - Google Ad Manager OAuth connection and AdX report sync.
 - AdX revenue, CTR, eCPM, and impressions from an existing interactive report.
 - Exact selected date/range sync by setting the saved Ad Manager report date range before each run.
+- Backfill old AdX dates with Sync Range, then use Refresh AdX to fetch only the latest stored date through today.
 - Optional GA4 sync for visitor columns.
 - SQLite-backed storage mounted at `/data` for Coolify deployment.
 

@@ -232,6 +232,7 @@ function AdminConsole() {
   const [clients, setClients] = useState([]);
   const [google, setGoogle] = useState({});
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedDomain, setSelectedDomain] = useState(null);
   const [deleteDomain, setDeleteDomain] = useState(null);
@@ -253,14 +254,29 @@ function AdminConsole() {
     load();
   }, [load]);
 
-  async function sync() {
-    setMessage('Sync running...');
-    const result = await api('/api/admin/sync/google', {
-      method: 'POST',
-      body: JSON.stringify(range)
-    });
-    setMessage(result.ok ? `Synced ${result.rowsSynced} rows (${result.mode})` : result.error);
-    await load();
+  async function syncRange() {
+    await runSync('Syncing selected range...', '/api/admin/sync/google', range);
+  }
+
+  async function refreshLatest() {
+    await runSync('Refreshing latest AdX data...', '/api/admin/sync/google/latest');
+  }
+
+  async function runSync(startMessage, path, body) {
+    setSyncing(true);
+    setMessage(startMessage);
+    try {
+      const result = await api(path, {
+        method: 'POST',
+        ...(body ? { body: JSON.stringify(body) } : {})
+      });
+      setMessage(result.ok ? syncMessage(result) : result.error);
+      await load();
+    } catch (syncError) {
+      setMessage(syncError.message || 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function deleteSubdomain(row) {
@@ -272,10 +288,17 @@ function AdminConsole() {
   return (
     <section className="workspace">
       <PageTitle title="Admin Console" subtitle="Clients, subdomains and AdX sync" />
-      <Controls range={range} setRange={setRange} onRefresh={load} onColumns={() => setCompactColumns((current) => !current)}>
-        <button className="primary-button" type="button" onClick={sync}>
+      <Controls
+        range={range}
+        setRange={setRange}
+        onRefresh={refreshLatest}
+        refreshLabel="Refresh AdX"
+        refreshDisabled={syncing}
+        onColumns={() => setCompactColumns((current) => !current)}
+      >
+        <button className="primary-button" type="button" onClick={syncRange} disabled={syncing}>
           <DatabaseZap size={16} />
-          Sync AdX
+          Sync Range
         </button>
       </Controls>
       <AdminStatus google={google} message={message} latestSync={overview.latestSync} />
@@ -368,6 +391,11 @@ function AdminStatus({ google, message, latestSync }) {
       </div>
     </div>
   );
+}
+
+function syncMessage(result) {
+  const rangeText = result.range ? ` ${result.range.from} - ${result.range.to}` : '';
+  return `Synced ${result.rowsSynced} rows (${result.mode})${rangeText}`;
 }
 
 function AdminForms({ clients, onChanged }) {
@@ -491,15 +519,34 @@ function AdminForms({ clients, onChanged }) {
           <Globe2 size={18} />
         </div>
         <form className="compact-form" onSubmit={createSubdomain}>
-          <input placeholder="sub.example.com" value={subdomain.domain} onChange={setField(setSubdomain, 'domain')} required />
-          <input placeholder="Category" value={subdomain.category} onChange={setField(setSubdomain, 'category')} />
-          <input placeholder="Unit price" type="number" value={subdomain.unitPrice} onChange={setField(setSubdomain, 'unitPrice')} />
-          <select value={subdomain.clientId} onChange={setField(setSubdomain, 'clientId')}>
-            <option value="">Unassigned</option>
-            {clients.map((item) => (
-              <option value={item.id} key={item.id}>{item.name}</option>
-            ))}
-          </select>
+          <label>
+            Domain
+            <input placeholder="sub.example.com" value={subdomain.domain} onChange={setField(setSubdomain, 'domain')} required />
+          </label>
+          <label>
+            Category
+            <input placeholder="Content" value={subdomain.category} onChange={setField(setSubdomain, 'category')} />
+          </label>
+          <label>
+            Unit price (MAD)
+            <input
+              placeholder="25"
+              type="number"
+              min="0"
+              step="0.01"
+              value={subdomain.unitPrice}
+              onChange={setField(setSubdomain, 'unitPrice')}
+            />
+          </label>
+          <label>
+            Client
+            <select value={subdomain.clientId} onChange={setField(setSubdomain, 'clientId')}>
+              <option value="">Unassigned</option>
+              {clients.map((item) => (
+                <option value={item.id} key={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </label>
           <button className="secondary-button" type="submit">
             <Globe2 size={15} />
             Add Domain
@@ -622,7 +669,7 @@ function PageTitle({ title, subtitle }) {
   );
 }
 
-function Controls({ range, setRange, onRefresh, onColumns, children }) {
+function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refresh', refreshDisabled = false, children }) {
   function updateFrom(from) {
     setRange((current) => ({
       from,
@@ -671,9 +718,9 @@ function Controls({ range, setRange, onRefresh, onColumns, children }) {
       </div>
       <div className="control-spacer" />
       {children}
-      <button className="ghost-button" type="button" onClick={onRefresh}>
+      <button className="ghost-button" type="button" onClick={onRefresh} disabled={refreshDisabled}>
         <RefreshCcw size={15} />
-        Refresh
+        {refreshLabel}
       </button>
       <button className="ghost-button desktop-only" type="button" onClick={onColumns}>
         Columns

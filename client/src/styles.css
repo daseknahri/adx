@@ -556,6 +556,14 @@ main {
   border-top: 1px solid var(--line);
 }
 
+.compact-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .compact-form + .compact-form {
   margin-top: 18px;
 }

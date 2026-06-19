@@ -29,7 +29,8 @@ manual/domain management to remain usable.
 - Assign subdomains to clients.
 - Set status, category, unit price, and notes.
 - Connect Google OAuth.
-- Run manual sync for exact selected dates/ranges from the saved Ad Manager report.
+- Run manual range sync for backfilling exact selected dates/ranges.
+- Run latest refresh from the newest stored AdX date through today.
 - View all metrics and sync errors.
 
 ### Client
@@ -82,6 +83,7 @@ All endpoints return JSON unless serving the React app.
 - `POST /api/admin/subdomains/:id/assign`
 - `POST /api/admin/subdomains/:id/unassign`
 - `POST /api/admin/sync/google`
+- `POST /api/admin/sync/google/latest`
 - `GET /api/admin/google/status`
 - `GET /api/admin/google/oauth/start`
 - `GET /api/admin/google/oauth/callback`
