@@ -118,13 +118,13 @@ export function seedDatabase(db, config) {
   const userCount = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
   if (userCount > 0) return;
 
-  const insertClient = db.prepare(`
-    INSERT INTO clients (name, company, email, notes)
-    VALUES (@name, @company, @email, @notes)
-  `);
   const insertUser = db.prepare(`
     INSERT INTO users (email, password_hash, role, name, client_id)
     VALUES (@email, @passwordHash, @role, @name, @clientId)
+  `);
+  const insertClient = db.prepare(`
+    INSERT INTO clients (name, company, email, notes)
+    VALUES (@name, @company, @email, @notes)
   `);
   const insertSubdomain = db.prepare(`
     INSERT INTO subdomains (domain, category, unit_price, rent_status, notes)
@@ -141,7 +141,6 @@ export function seedDatabase(db, config) {
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'seed')
   `);
-
   const seed = db.transaction(() => {
     const adminHash = bcrypt.hashSync(config.seedAdminPassword, 12);
     insertUser.run({
@@ -152,17 +151,18 @@ export function seedDatabase(db, config) {
       clientId: null
     });
 
+    if (config.isProd) return;
+
     const clientInfo = insertClient.run({
       name: 'Demo Client',
       company: 'Demo Publishing',
       email: config.seedClientEmail.toLowerCase(),
-      notes: 'Seed client for first login and QA.'
+      notes: 'Seed client for local development and tests.'
     });
     const clientId = Number(clientInfo.lastInsertRowid);
-    const clientHash = bcrypt.hashSync(config.seedClientPassword, 12);
     insertUser.run({
       email: config.seedClientEmail.toLowerCase(),
-      passwordHash: clientHash,
+      passwordHash: bcrypt.hashSync(config.seedClientPassword, 12),
       role: 'client',
       name: 'Demo Client',
       clientId
@@ -173,7 +173,6 @@ export function seedDatabase(db, config) {
       ['sports.demo.example.com', 'Sports', 21],
       ['finance.demo.example.com', 'Finance', 33]
     ];
-
     for (const [domain, category, unitPrice] of domains) {
       const result = insertSubdomain.run({
         domain,
@@ -208,4 +207,45 @@ export function seedDatabase(db, config) {
   });
 
   seed();
+}
+
+export function applyProductionConfiguration(db, config) {
+  if (!config.isProd) return;
+
+  const transaction = db.transaction(() => {
+    // Remove records created by older demo builds while leaving real accounts intact.
+    db.prepare("DELETE FROM users WHERE role = 'client' AND email = 'client@example.com'").run();
+    db.prepare("DELETE FROM clients WHERE email = 'client@example.com'").run();
+    db.prepare("DELETE FROM subdomains WHERE domain LIKE '%.demo.example.com'").run();
+
+    if (!config.adminCredentialsProvided) return;
+
+    const byEmail = db.prepare(`
+      SELECT id, password_hash AS passwordHash
+      FROM users
+      WHERE role = 'admin' AND email = ?
+    `).get(config.adminEmail);
+    const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id").all();
+
+    if (byEmail) {
+      if (!bcrypt.compareSync(config.adminPassword, byEmail.passwordHash)) {
+        db.prepare('UPDATE users SET password_hash = ?, active = 1 WHERE id = ?')
+          .run(bcrypt.hashSync(config.adminPassword, 12), byEmail.id);
+      }
+      return;
+    }
+
+    if (admins.length === 1) {
+      db.prepare('UPDATE users SET email = ?, password_hash = ?, active = 1 WHERE id = ?')
+        .run(config.adminEmail, bcrypt.hashSync(config.adminPassword, 12), admins[0].id);
+      return;
+    }
+
+    db.prepare(`
+      INSERT INTO users (email, password_hash, role, name, client_id, active)
+      VALUES (?, ?, 'admin', 'Admin', NULL, 1)
+    `).run(config.adminEmail, bcrypt.hashSync(config.adminPassword, 12));
+  });
+
+  transaction();
 }

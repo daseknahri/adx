@@ -7,6 +7,7 @@ import {
   CircleDollarSign,
   DatabaseZap,
   Eye,
+  EyeOff,
   Globe2,
   LayoutDashboard,
   LogOut,
@@ -128,8 +129,8 @@ function Shell({ user, onLogout, theme, onToggleTheme, children }) {
 }
 
 function LoginScreen({ onLogin, error }) {
-  const [email, setEmail] = useState('admin@example.com');
-  const [password, setPassword] = useState('ChangeMe123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const submitLogin = () => onLogin({ email, password });
 
   return (
@@ -152,15 +153,16 @@ function LoginScreen({ onLogin, error }) {
         >
           <label htmlFor="login-email">
             Email
-            <input id="login-email" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input id="login-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
           </label>
           <label htmlFor="login-password">
             Password
-            <input
+            <PasswordInput
               id="login-password"
-              type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              required
             />
           </label>
           {error ? <p className="form-error">{error}</p> : null}
@@ -175,16 +177,22 @@ function LoginScreen({ onLogin, error }) {
             Login
           </button>
         </form>
-        <div className="login-hints">
-          <button type="button" onClick={() => { setEmail('admin@example.com'); setPassword('ChangeMe123!'); }}>
-            Admin demo
-          </button>
-          <button type="button" onClick={() => { setEmail('client@example.com'); setPassword('Client123!'); }}>
-            Client demo
-          </button>
-        </div>
       </section>
     </div>
+  );
+}
+
+function PasswordInput({ id, ...props }) {
+  const [visible, setVisible] = useState(false);
+  const label = visible ? 'Hide password' : 'Show password';
+
+  return (
+    <span className="password-input">
+      <input id={id} type={visible ? 'text' : 'password'} {...props} />
+      <button type="button" className="password-toggle" aria-label={label} title={label} onClick={() => setVisible((value) => !value)}>
+        {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </span>
   );
 }
 
@@ -596,7 +604,7 @@ function AdminForms({ clients, onChanged }) {
           </label>
           <label>
             Initial password
-            <input placeholder="Password" type="password" value={client.password} onChange={setField(setClient, 'password')} />
+            <PasswordInput placeholder="Password" autoComplete="new-password" value={client.password} onChange={setField(setClient, 'password')} />
           </label>
           <button className="secondary-button" type="submit">
             <Plus size={15} />
@@ -797,9 +805,9 @@ function EditClientDialog({ row, onCancel, onSave }) {
           </label>
           <label>
             New password
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Leave empty to keep current"
+              autoComplete="new-password"
               value={values.password}
               onChange={setField(setValues, 'password')}
             />

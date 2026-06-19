@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { config } from './config.js';
-import { openDb, seedDatabase } from './db.js';
+import { applyProductionConfiguration, openDb, seedDatabase } from './db.js';
 import { attachAuth, requireAuth } from './middleware.js';
 import { authRouter } from './routes/auth.js';
 import { adminRouter } from './routes/admin.js';
@@ -69,6 +69,7 @@ export function createApp({ db, config: appConfig = config }) {
 export function startServer(appConfig = config) {
   const db = openDb(appConfig.dbPath);
   seedDatabase(db, appConfig);
+  applyProductionConfiguration(db, appConfig);
   const app = createApp({ db, config: appConfig });
   return app.listen(appConfig.port, '0.0.0.0', () => {
     console.log(`AdSense Tracker listening on :${appConfig.port}`);

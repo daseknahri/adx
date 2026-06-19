@@ -715,6 +715,37 @@ select {
   outline: none;
 }
 
+.password-input {
+  position: relative;
+  display: block;
+}
+
+.password-input input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
 input:focus,
 select:focus {
   border-color: #3b82f6;
@@ -778,21 +809,6 @@ select:focus {
   margin: 0;
   color: var(--danger);
   font-size: 13px;
-}
-
-.login-hints {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.login-hints button {
-  flex: 1;
-  height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #090b10;
-  color: var(--muted);
 }
 
 .drawer {

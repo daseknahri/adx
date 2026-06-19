@@ -16,8 +16,15 @@ export const config = {
   dbPath: process.env.DB_PATH || path.join(process.cwd(), 'data', 'app.db'),
   sessionSecret: mustBeSecret(process.env.SESSION_SECRET, fallbackSecret),
   tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY || '',
-  seedAdminEmail: process.env.SEED_ADMIN_EMAIL || 'admin@example.com',
-  seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!',
+  // ADMIN_* is the production name. SEED_* stays supported for existing installs.
+  adminEmail: (process.env.ADMIN_EMAIL || process.env.SEED_ADMIN_EMAIL || 'admin@example.com').trim().toLowerCase(),
+  adminPassword: process.env.ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!',
+  adminCredentialsProvided: Boolean(
+    (process.env.ADMIN_EMAIL || process.env.SEED_ADMIN_EMAIL)
+    && (process.env.ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD)
+  ),
+  seedAdminEmail: (process.env.ADMIN_EMAIL || process.env.SEED_ADMIN_EMAIL || 'admin@example.com').trim().toLowerCase(),
+  seedAdminPassword: process.env.ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!',
   seedClientEmail: process.env.SEED_CLIENT_EMAIL || 'client@example.com',
   seedClientPassword: process.env.SEED_CLIENT_PASSWORD || 'Client123!',
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',

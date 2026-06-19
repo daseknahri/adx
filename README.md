@@ -23,15 +23,10 @@ npm run dev
 
 Open the client dev app at `http://localhost:5173`.
 
-Default seeded accounts:
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@example.com` | `ChangeMe123!` |
-| Client | `client@example.com` | `Client123!` |
-
-Change these immediately in production by setting `SEED_ADMIN_EMAIL`,
-`SEED_ADMIN_PASSWORD`, `SEED_CLIENT_EMAIL`, and `SEED_CLIENT_PASSWORD`.
+The first run creates only the administrator. Production does not create demo
+clients, domains, or metrics. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` before
+deploying. These values update the single existing admin account on the next
+deploy, which is how to rotate the administrator login safely.
 
 ## Production
 
