@@ -466,6 +466,7 @@ function AdminForms({ clients, onChanged }) {
   const [resetting, setResetting] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearText, setClearText] = useState('');
+  const [editClientTarget, setEditClientTarget] = useState(null);
   const [deleteClientTarget, setDeleteClientTarget] = useState(null);
   const [client, setClient] = useState({
     name: '',
@@ -531,6 +532,15 @@ function AdminForms({ clients, onChanged }) {
     onChanged();
   }
 
+  async function updateClient(item, values) {
+    await api(`/api/admin/clients/${item.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(values)
+    });
+    setEditClientTarget(null);
+    onChanged();
+  }
+
   async function deleteClient(item) {
     await api(`/api/admin/clients/${item.id}`, { method: 'DELETE' });
     setDeleteClientTarget(null);
@@ -564,10 +574,22 @@ function AdminForms({ clients, onChanged }) {
           <UsersRound size={18} />
         </div>
         <form className="compact-form" onSubmit={createClient}>
-          <input placeholder="Client name" value={client.name} onChange={setField(setClient, 'name')} required />
-          <input placeholder="Company" value={client.company} onChange={setField(setClient, 'company')} />
-          <input placeholder="Email" value={client.email} onChange={setField(setClient, 'email')} required />
-          <input placeholder="Password" value={client.password} onChange={setField(setClient, 'password')} />
+          <label>
+            Name
+            <input placeholder="Client name" value={client.name} onChange={setField(setClient, 'name')} required />
+          </label>
+          <label>
+            Company
+            <input placeholder="Company" value={client.company} onChange={setField(setClient, 'company')} />
+          </label>
+          <label>
+            Email
+            <input placeholder="Email" type="email" value={client.email} onChange={setField(setClient, 'email')} required />
+          </label>
+          <label>
+            Initial password
+            <input placeholder="Password" type="password" value={client.password} onChange={setField(setClient, 'password')} />
+          </label>
           <button className="secondary-button" type="submit">
             <Plus size={15} />
             Add Client
@@ -641,6 +663,14 @@ function AdminForms({ clients, onChanged }) {
                 <button
                   className="row-action"
                   type="button"
+                  title="Edit client"
+                  onClick={() => setEditClientTarget(item)}
+                >
+                  <Pencil size={15} />
+                </button>
+                <button
+                  className="row-action"
+                  type="button"
                   title={item.status === 'active' ? 'Pause dashboard' : 'Activate dashboard'}
                   onClick={() => updateClientStatus(item, item.status === 'active' ? 'paused' : 'active')}
                 >
@@ -690,6 +720,93 @@ function AdminForms({ clients, onChanged }) {
           onConfirm={() => deleteClient(deleteClientTarget)}
         />
       ) : null}
+      {editClientTarget ? (
+        <EditClientDialog
+          row={editClientTarget}
+          onCancel={() => setEditClientTarget(null)}
+          onSave={(values) => updateClient(editClientTarget, values)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function EditClientDialog({ row, onCancel, onSave }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [values, setValues] = useState(() => ({
+    name: row.name || '',
+    company: row.company || '',
+    email: row.email || '',
+    status: row.status || 'active',
+    notes: row.notes || '',
+    password: ''
+  }));
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const payload = { ...values };
+      if (!payload.password) delete payload.password;
+      await onSave(payload);
+    } catch (saveError) {
+      setError(saveError.message || 'Update failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="confirm-panel" role="dialog" aria-modal="true" aria-label="Edit client">
+      <form className="confirm-box edit-box" onSubmit={submit}>
+        <h2>Edit Client</h2>
+        <div className="edit-form">
+          <label>
+            Name
+            <input value={values.name} onChange={setField(setValues, 'name')} required />
+          </label>
+          <label>
+            Company
+            <input value={values.company} onChange={setField(setValues, 'company')} />
+          </label>
+          <label>
+            Email
+            <input type="email" value={values.email} onChange={setField(setValues, 'email')} required />
+          </label>
+          <label>
+            Status
+            <select value={values.status} onChange={setField(setValues, 'status')}>
+              <option value="active">active</option>
+              <option value="paused">paused</option>
+              <option value="ended">ended</option>
+            </select>
+          </label>
+          <label>
+            Notes
+            <input value={values.notes} onChange={setField(setValues, 'notes')} />
+          </label>
+          <label>
+            New password
+            <input
+              type="password"
+              placeholder="Leave empty to keep current"
+              value={values.password}
+              onChange={setField(setValues, 'password')}
+            />
+          </label>
+        </div>
+        {error ? <p className="form-error">{error}</p> : null}
+        <div className="confirm-actions">
+          <button className="ghost-button" type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="primary-button" type="submit" disabled={busy}>
+            Save
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

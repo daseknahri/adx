@@ -109,6 +109,89 @@ test('paused clients cannot login or continue using client APIs', async (t) => {
   assert.equal(loginPaused.body.error, 'client_paused');
 });
 
+test('admin can edit client details and reset login password', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const client = app.db.prepare('SELECT * FROM clients WHERE email = ?').get(app.config.seedClientEmail);
+
+  const updated = await request(app.baseUrl, `/api/admin/clients/${client.id}`, {
+    method: 'PATCH',
+    headers: { cookie },
+    body: JSON.stringify({
+      name: 'Updated Client',
+      company: 'Updated Publishing',
+      email: 'updated-client@example.com',
+      status: 'active',
+      notes: 'Edited in admin test',
+      password: 'UpdatedClient123!'
+    })
+  });
+  assert.equal(updated.response.status, 200);
+
+  const clients = await request(app.baseUrl, '/api/admin/clients', {
+    headers: { cookie }
+  });
+  const row = clients.body.clients.find((item) => item.id === client.id);
+  assert.equal(row.name, 'Updated Client');
+  assert.equal(row.company, 'Updated Publishing');
+  assert.equal(row.email, 'updated-client@example.com');
+  assert.equal(row.notes, 'Edited in admin test');
+
+  const oldLogin = await request(app.baseUrl, '/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: app.config.seedClientEmail,
+      password: app.config.seedClientPassword
+    })
+  });
+  assert.equal(oldLogin.response.status, 401);
+
+  const { user } = await login(app.baseUrl, 'updated-client@example.com', 'UpdatedClient123!');
+  assert.equal(user.name, 'Updated Client');
+  assert.equal(user.role, 'client');
+  assert.equal(user.clientId, client.id);
+
+  const ended = await request(app.baseUrl, `/api/admin/clients/${client.id}`, {
+    method: 'PATCH',
+    headers: { cookie },
+    body: JSON.stringify({
+      name: 'Updated Client',
+      company: 'Updated Publishing',
+      email: 'updated-client@example.com',
+      status: 'ended',
+      notes: 'Edited in admin test'
+    })
+  });
+  assert.equal(ended.response.status, 200);
+
+  const disabledLogin = await request(app.baseUrl, '/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: 'updated-client@example.com',
+      password: 'UpdatedClient123!'
+    })
+  });
+  assert.notEqual(disabledLogin.response.status, 200);
+
+  const reactivated = await request(app.baseUrl, `/api/admin/clients/${client.id}`, {
+    method: 'PATCH',
+    headers: { cookie },
+    body: JSON.stringify({
+      name: 'Updated Client',
+      company: 'Updated Publishing',
+      email: 'updated-client@example.com',
+      status: 'active',
+      notes: 'Edited in admin test'
+    })
+  });
+  assert.equal(reactivated.response.status, 200);
+
+  const reactivatedLogin = await login(app.baseUrl, 'updated-client@example.com', 'UpdatedClient123!');
+  assert.equal(reactivatedLogin.user.clientId, client.id);
+});
+
 test('admin can inspect daily metrics for any subdomain', async (t) => {
   const app = await startTestApp();
   t.after(() => app.close());

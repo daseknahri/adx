@@ -97,6 +97,7 @@ export function adminRouter(db, config) {
   router.patch('/clients/:id', (req, res) => {
     const id = Number(req.params.id);
     const input = cleanClientInput(req.body);
+    const password = String(req.body?.password || '').trim();
     const result = db.transaction(() => {
       const update = db.prepare(`
         UPDATE clients
@@ -104,16 +105,32 @@ export function adminRouter(db, config) {
         WHERE id = @id
       `).run({ ...input, id });
       if (update.changes) {
-        db.prepare(`
-          UPDATE users
-          SET email = @email, name = @name, active = CASE WHEN @status = 'ended' THEN 0 ELSE active END
-          WHERE client_id = @id AND role = 'client'
-        `).run({ ...input, id });
+        const existingUser = db.prepare('SELECT id FROM users WHERE client_id = ? AND role = ?').get(id, 'client');
+        const passwordHash = password ? hashPassword(password) : null;
+        if (existingUser && passwordHash) {
+          db.prepare(`
+            UPDATE users
+            SET email = @email, name = @name, password_hash = @passwordHash,
+                active = CASE WHEN @status = 'ended' THEN 0 ELSE 1 END
+            WHERE client_id = @id AND role = 'client'
+          `).run({ ...input, id, passwordHash });
+        } else if (existingUser) {
+          db.prepare(`
+            UPDATE users
+            SET email = @email, name = @name, active = CASE WHEN @status = 'ended' THEN 0 ELSE 1 END
+            WHERE client_id = @id AND role = 'client'
+          `).run({ ...input, id });
+        } else if (passwordHash) {
+          db.prepare(`
+            INSERT INTO users (email, password_hash, role, name, client_id, active)
+            VALUES (@email, @passwordHash, 'client', @name, @id, CASE WHEN @status = 'ended' THEN 0 ELSE 1 END)
+          `).run({ ...input, id, passwordHash });
+        }
       }
       return update;
     })();
     if (!result.changes) return res.status(404).json({ error: 'not_found' });
-    audit(db, req, 'client.updated', 'client', id, input);
+    audit(db, req, 'client.updated', 'client', id, { ...input, passwordChanged: Boolean(password) });
     res.json({ ok: true });
   });
 
