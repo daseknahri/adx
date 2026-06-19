@@ -18,10 +18,11 @@ export function adminRouter(db, config) {
       acc.pageViews += row.pageViews;
       acc.visitors += row.visitors;
       acc.activeUsers += row.activeUsers;
+      acc.clicks += row.clicks;
+      acc.impressions += row.impressions;
       return acc;
-    }, { earnings: 0, clientEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0 });
-    totals.adxCtr = averageNonZero(rows.map((row) => row.adxCtr));
-    totals.adxEcpm = averageNonZero(rows.map((row) => row.adxEcpm));
+    }, { earnings: 0, clientEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0, clicks: 0, impressions: 0 });
+    applyAdTotals(totals, rows, 'earnings');
 
     const latestSync = db.prepare(`
       SELECT provider, status, started_at AS startedAt, finished_at AS finishedAt, message, rows_synced AS rowsSynced
@@ -488,7 +489,11 @@ function domainRows(db, range) {
       COALESCE(SUM(m.impressions), 0) AS impressions,
       COALESCE(AVG(NULLIF(m.rpm, 0)), 0) AS rpm,
       COALESCE(AVG(NULLIF(m.adx_ctr, 0)), 0) AS adxCtr,
-      COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0) AS adxEcpm,
+      CASE
+        WHEN COALESCE(SUM(m.impressions), 0) > 0
+        THEN ROUND(COALESCE(SUM(m.earnings), 0) / SUM(m.impressions) * 1000, 2)
+        ELSE COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0)
+      END AS adxEcpm,
       COALESCE(MAX(m.source), 'empty') AS source
     FROM subdomains s
     LEFT JOIN client_subdomains cs ON cs.subdomain_id = s.id
@@ -505,6 +510,15 @@ function averageNonZero(values) {
   const clean = values.map(Number).filter((value) => value > 0);
   if (!clean.length) return 0;
   return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function applyAdTotals(totals, rows, revenueKey) {
+  totals.adxCtr = totals.clicks > 0 && totals.impressions > 0
+    ? (totals.clicks / totals.impressions) * 100
+    : averageNonZero(rows.map((row) => row.adxCtr));
+  totals.adxEcpm = totals.impressions > 0
+    ? (totals[revenueKey] / totals.impressions) * 1000
+    : averageNonZero(rows.map((row) => row.adxEcpm));
 }
 
 function dataFreshness(db) {

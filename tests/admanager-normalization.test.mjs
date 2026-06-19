@@ -32,7 +32,7 @@ test('normalizes Ad Manager report rows with configured Site metrics', () => {
       earnings: 23.48,
       pageViews: 635,
       activeUsers: 0,
-      clicks: 0,
+      clicks: 38,
       impressions: 635,
       rpm: 36.97,
       adxCtr: 5.98,

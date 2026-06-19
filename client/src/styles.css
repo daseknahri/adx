@@ -860,7 +860,7 @@ select:focus {
 
 .assignment-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px 120px auto;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
   align-items: end;
   gap: 10px;
 }

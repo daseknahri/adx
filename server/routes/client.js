@@ -6,7 +6,6 @@ export function clientRouter(db) {
   router.use(requireClient);
 
   router.get('/dashboard', (req, res) => {
-    const range = parseRange(req.query);
     const rows = db.prepare(`
       SELECT
         s.id,
@@ -14,7 +13,6 @@ export function clientRouter(db) {
         s.category,
         s.unit_price AS unitPrice,
         s.rent_status AS rentStatus,
-        COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10)) AS visibleFrom,
         COALESCE(cs.owner_cut_percent, 0) AS ownerCutPercent,
         100 - COALESCE(cs.owner_cut_percent, 0) AS clientSharePercent,
         COALESCE(SUM(m.visitors), 0) AS visitors,
@@ -29,18 +27,20 @@ export function clientRouter(db) {
         COALESCE(SUM(m.impressions), 0) AS impressions,
         COALESCE(AVG(NULLIF(m.rpm, 0)), 0) AS rpm,
         COALESCE(AVG(NULLIF(m.adx_ctr, 0)), 0) AS adxCtr,
-        COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0) AS adxEcpm,
+        CASE
+          WHEN COALESCE(SUM(m.impressions), 0) > 0
+          THEN ROUND(COALESCE(SUM(m.earnings), 0) / SUM(m.impressions) * 1000, 2)
+          ELSE COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0)
+        END AS adxEcpm,
         COALESCE(MAX(m.source), 'empty') AS source
       FROM subdomains s
       INNER JOIN client_subdomains cs ON cs.subdomain_id = s.id
       LEFT JOIN metrics_daily m
         ON m.subdomain_id = s.id
-        AND m.metric_date BETWEEN @from AND @to
-        AND m.metric_date >= COALESCE(cs.visible_from, substr(cs.assigned_at, 1, 10))
       WHERE cs.client_id = @clientId
       GROUP BY s.id, cs.owner_cut_percent
       ORDER BY earnings DESC, pageViews DESC
-    `).all({ ...range, clientId: req.user.clientId });
+    `).all({ clientId: req.user.clientId });
 
     const totals = rows.reduce((acc, row) => {
       acc.earnings += row.earnings;
@@ -49,23 +49,22 @@ export function clientRouter(db) {
       acc.pageViews += row.pageViews;
       acc.visitors += row.visitors;
       acc.activeUsers += row.activeUsers;
+      acc.clicks += row.clicks;
+      acc.impressions += row.impressions;
       return acc;
-    }, { earnings: 0, grossEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0 });
-    totals.adxCtr = averageNonZero(rows.map((row) => row.adxCtr));
-    totals.adxEcpm = averageNonZero(rows.map((row) => row.adxEcpm));
+    }, { earnings: 0, grossEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0, clicks: 0, impressions: 0 });
+    applyAdTotals(totals, rows, 'grossEarnings');
 
-    res.json({ range, totals, rows });
+    res.json({ totals, rows });
   });
 
   router.get('/subdomains/:id/daily', (req, res) => {
-    const range = parseRange(req.query);
     const subdomainId = Number(req.params.id);
     if (!Number.isInteger(subdomainId) || subdomainId < 1) {
       return res.status(400).json({ error: 'invalid_domain' });
     }
     const assignment = db.prepare(`
-      SELECT COALESCE(visible_from, substr(assigned_at, 1, 10)) AS visibleFrom,
-        COALESCE(owner_cut_percent, 0) AS ownerCutPercent
+      SELECT COALESCE(owner_cut_percent, 0) AS ownerCutPercent
       FROM client_subdomains
       WHERE client_id = ? AND subdomain_id = ?
     `).get(req.user.clientId, subdomainId);
@@ -81,17 +80,13 @@ export function clientRouter(db) {
         clicks, impressions, rpm, adx_ctr AS adxCtr, adx_ecpm AS adxEcpm, source
       FROM metrics_daily
       WHERE subdomain_id = @subdomainId
-        AND metric_date BETWEEN @from AND @to
-        AND metric_date >= @visibleFrom
       ORDER BY metric_date ASC
     `).all({
       subdomainId,
-      visibleFrom: assignment.visibleFrom,
-      ownerCutPercent: assignment.ownerCutPercent,
-      ...range
+      ownerCutPercent: assignment.ownerCutPercent
     });
 
-    res.json({ range, rows });
+    res.json({ rows });
   });
 
   return router;
@@ -103,10 +98,11 @@ function averageNonZero(values) {
   return clean.reduce((sum, value) => sum + value, 0) / clean.length;
 }
 
-function parseRange(query) {
-  const today = new Date().toISOString().slice(0, 10);
-  return {
-    from: String(query.from || today),
-    to: String(query.to || today)
-  };
+function applyAdTotals(totals, rows, revenueKey) {
+  totals.adxCtr = totals.clicks > 0 && totals.impressions > 0
+    ? (totals.clicks / totals.impressions) * 100
+    : averageNonZero(rows.map((row) => row.adxCtr));
+  totals.adxEcpm = totals.impressions > 0
+    ? (totals[revenueKey] / totals.impressions) * 1000
+    : averageNonZero(rows.map((row) => row.adxEcpm));
 }

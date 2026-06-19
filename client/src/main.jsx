@@ -198,7 +198,6 @@ function PasswordInput({ id, ...props }) {
 }
 
 function ClientDashboard() {
-  const [range, setRange] = useDateRange();
   const [compactColumns, setCompactColumns] = useState(false);
   const [data, setData] = useState({ totals: {}, rows: [] });
   const [loading, setLoading] = useState(true);
@@ -208,7 +207,7 @@ function ClientDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await api(`/api/client/dashboard?${rangeQuery(range)}`);
+      const result = await api('/api/client/dashboard');
       setData(result);
       setAccessError('');
     } catch (error) {
@@ -216,7 +215,7 @@ function ClientDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -238,7 +237,7 @@ function ClientDashboard() {
   return (
     <section className="workspace">
       <PageTitle title="Salary Dashboard" subtitle="My Domains" />
-      <Controls range={range} setRange={setRange} onRefresh={load} onColumns={() => setCompactColumns((current) => !current)} />
+      <ClientControls onRefresh={load} onColumns={() => setCompactColumns((current) => !current)} />
       <MetricStrip totals={data.totals} clientMode />
       <DomainTable
         rows={data.rows}
@@ -249,7 +248,7 @@ function ClientDashboard() {
         onView={(row) => setSelected(row)}
       />
       {selected ? (
-        <DetailDrawer row={selected} range={range} onClose={() => setSelected(null)} />
+        <DetailDrawer row={selected} onClose={() => setSelected(null)} />
       ) : null}
     </section>
   );
@@ -327,14 +326,12 @@ function AdminConsole() {
     const currentClientId = Number(row.clientId || 0);
     if (
       currentClientId !== nextClientId ||
-      row.visibleFrom !== values.visibleFrom ||
       Number(row.ownerCutPercent || 0) !== Number(values.ownerCutPercent || 0)
     ) {
       await api(`/api/admin/subdomains/${row.id}/assignment`, {
         method: 'PUT',
         body: JSON.stringify({
           clientId: nextClientId || null,
-          visibleFrom: values.visibleFrom,
           ownerCutPercent: values.ownerCutPercent
         })
       });
@@ -524,7 +521,6 @@ function AdminForms({ clients, onChanged }) {
     rentStatus: 'active',
     notes: '',
     clientId: '',
-    visibleFrom: isoDate(new Date()),
     ownerCutPercent: '20'
   });
 
@@ -549,7 +545,6 @@ function AdminForms({ clients, onChanged }) {
         method: 'POST',
         body: JSON.stringify({
           clientId: Number(subdomain.clientId),
-          visibleFrom: subdomain.visibleFrom,
           ownerCutPercent: subdomain.ownerCutPercent
         })
       });
@@ -561,7 +556,6 @@ function AdminForms({ clients, onChanged }) {
       rentStatus: 'active',
       notes: '',
       clientId: '',
-      visibleFrom: isoDate(new Date()),
       ownerCutPercent: '20'
     });
     onChanged();
@@ -659,21 +653,6 @@ function AdminForms({ clients, onChanged }) {
             <input placeholder="sub.example.com" value={subdomain.domain} onChange={setField(setSubdomain, 'domain')} required />
           </label>
           <label>
-            Category
-            <input placeholder="Content" value={subdomain.category} onChange={setField(setSubdomain, 'category')} />
-          </label>
-          <label>
-            Unit price (MAD)
-            <input
-              placeholder="25"
-              type="number"
-              min="0"
-              step="0.01"
-              value={subdomain.unitPrice}
-              onChange={setField(setSubdomain, 'unitPrice')}
-            />
-          </label>
-          <label>
             Client
             <select value={subdomain.clientId} onChange={setField(setSubdomain, 'clientId')}>
               <option value="">Unassigned</option>
@@ -681,10 +660,6 @@ function AdminForms({ clients, onChanged }) {
                 <option value={item.id} key={item.id}>{item.name}</option>
               ))}
             </select>
-          </label>
-          <label>
-            Client access begins
-            <input type="date" value={subdomain.visibleFrom} onChange={setField(setSubdomain, 'visibleFrom')} disabled={!subdomain.clientId} />
           </label>
           <label>
             Your cut (%)
@@ -894,7 +869,6 @@ function EditClientDialog({ row, onCancel, onSave }) {
 function ClientDomainsDialog({ client, onCancel, onChanged }) {
   const [data, setData] = useState({ assigned: [], available: [] });
   const [selectedDomainId, setSelectedDomainId] = useState('');
-  const [visibleFrom, setVisibleFrom] = useState(() => isoDate(new Date()));
   const [ownerCutPercent, setOwnerCutPercent] = useState('20');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -916,7 +890,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
     try {
       await api(`/api/admin/subdomains/${selectedDomainId}/assignment`, {
         method: 'PUT',
-        body: JSON.stringify({ clientId: client.id, visibleFrom, ownerCutPercent })
+        body: JSON.stringify({ clientId: client.id, ownerCutPercent })
       });
       setSelectedDomainId('');
       setOwnerCutPercent('20');
@@ -934,7 +908,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
     try {
       await api(`/api/admin/subdomains/${domain.id}/assignment`, {
         method: 'PUT',
-        body: JSON.stringify({ clientId: null, visibleFrom: isoDate(new Date()) })
+        body: JSON.stringify({ clientId: null })
       });
       await Promise.all([load(), onChanged()]);
     } catch (assignmentError) {
@@ -950,7 +924,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
         <div className="panel-heading">
           <div>
             <h2>{client.name} domains</h2>
-            <p>Only metrics from each access date are visible to this client.</p>
+            <p>Assigned clients see all stored synced data for each subdomain.</p>
           </div>
           <button className="icon-button" type="button" title="Close" onClick={onCancel} disabled={busy}>x</button>
         </div>
@@ -963,10 +937,6 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
                 <option value={domain.id} key={domain.id}>{domain.domain}</option>
               ))}
             </select>
-          </label>
-          <label>
-            Client access begins
-            <input type="date" value={visibleFrom} onChange={(event) => setVisibleFrom(event.target.value)} disabled={busy} />
           </label>
           <label>
             Your cut (%)
@@ -990,7 +960,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
             <div className="assignment-row" key={domain.id}>
               <div>
                 <strong>{domain.domain}</strong>
-                <span>Access from {domain.visibleFrom} - your cut {number(domain.ownerCutPercent)}%</span>
+                <span>Your cut {number(domain.ownerCutPercent)}%</span>
               </div>
               <button className="row-action danger" type="button" title="Remove from client" onClick={() => removeDomain(domain)} disabled={busy}>
                 <Trash2 size={15} />
@@ -1046,7 +1016,6 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
     rentStatus: row.rentStatus || 'active',
     notes: row.notes || '',
     clientId: row.clientId ? String(row.clientId) : '',
-    visibleFrom: row.visibleFrom || isoDate(new Date()),
     ownerCutPercent: String(row.ownerCutPercent ?? 20)
   }));
 
@@ -1087,14 +1056,6 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
             <input value={values.domain} onChange={setField(setValues, 'domain')} required />
           </label>
           <label>
-            Category
-            <input value={values.category} onChange={setField(setValues, 'category')} />
-          </label>
-          <label>
-            Unit price (MAD)
-            <input type="number" min="0" step="0.01" value={values.unitPrice} onChange={setField(setValues, 'unitPrice')} />
-          </label>
-          <label>
             Status
             <select value={values.rentStatus} onChange={setField(setValues, 'rentStatus')}>
               <option value="active">active</option>
@@ -1110,10 +1071,6 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
                 <option value={client.id} key={client.id}>{client.name}</option>
               ))}
             </select>
-          </label>
-          <label>
-            Client access begins
-            <input type="date" value={values.visibleFrom} onChange={setField(setValues, 'visibleFrom')} disabled={!values.clientId} />
           </label>
           <label>
             Your cut (%)
@@ -1137,7 +1094,7 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
             {assignmentHistory.map((assignment) => (
               <div key={assignment.id}>
                 <strong>{assignment.clientName}</strong>
-                <span>{assignment.visibleFrom} to {assignment.visibleUntil || 'Current'} - cut {number(assignment.ownerCutPercent)}%</span>
+                <span>{assignment.endedAt ? 'Previous' : 'Current'} - cut {number(assignment.ownerCutPercent)}%</span>
               </div>
             ))}
           </div>
@@ -1219,6 +1176,21 @@ function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refre
         {refreshLabel}
       </button>
       <button className="ghost-button desktop-only" type="button" onClick={onColumns}>
+        Columns
+        <ChevronDown size={15} />
+      </button>
+    </div>
+  );
+}
+
+function ClientControls({ onRefresh, onColumns }) {
+  return (
+    <div className="controls">
+      <button className="ghost-button" type="button" onClick={onRefresh}>
+        <RefreshCcw size={15} />
+        Refresh
+      </button>
+      <button className="ghost-button" type="button" onClick={onColumns}>
         Columns
         <ChevronDown size={15} />
       </button>
@@ -1320,8 +1292,8 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
             <tr>
               <td>Total</td>
               <td>{number(totals.pageViews)}</td>
-              {!compact ? <td>{number(rows.reduce((sum, row) => sum + Number(row.impressions || 0), 0))}</td> : null}
-              {!compact ? <td>{number(rows.reduce((sum, row) => sum + Number(row.clicks || 0), 0))}</td> : null}
+              {!compact ? <td>{number(totals.impressions)}</td> : null}
+              {!compact ? <td>{number(totals.clicks)}</td> : null}
               <td>{percent(totals.adxCtr)}</td>
               <td>{money(totals.adxEcpm)}</td>
               {!compact ? <td>-</td> : null}
@@ -1341,7 +1313,7 @@ function DetailDrawer({ row, range, dailyPath, onClose }) {
 
   useEffect(() => {
     const path = dailyPath || `/api/client/subdomains/${row.id}/daily`;
-    api(`${path}?${rangeQuery(range)}`).then((result) => setDaily(result.rows));
+    api(range ? `${path}?${rangeQuery(range)}` : path).then((result) => setDaily(result.rows));
   }, [row.id, range, dailyPath]);
 
   return (
@@ -1351,7 +1323,7 @@ function DetailDrawer({ row, range, dailyPath, onClose }) {
         <div className="panel-heading">
           <div>
             <h2>{row.domain}</h2>
-            <p>{range.from} - {range.to}</p>
+            <p>{range ? `${range.from} - ${range.to}` : 'All synced dates'}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose}>x</button>
         </div>

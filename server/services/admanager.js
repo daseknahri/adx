@@ -225,6 +225,8 @@ export function normalizeAdManagerRows(payload, options = {}) {
     );
     const calculatedImpressions = earnings > 0 && adxEcpm > 0 ? Math.round((earnings / adxEcpm) * 1000) : 0;
     const impressions = reportedImpressions || calculatedImpressions;
+    const reportedClicks = metric('CLICKS', 'AD_EXCHANGE_CLICKS');
+    const calculatedClicks = impressions > 0 && adxCtr > 0 ? Math.round((impressions * adxCtr) / 100) : 0;
     const pageViews = metric('PAGE_VIEWS', 'AD_EXCHANGE_PAGE_VIEWS') || impressions;
 
     return {
@@ -233,7 +235,7 @@ export function normalizeAdManagerRows(payload, options = {}) {
       earnings,
       pageViews,
       activeUsers: 0,
-      clicks: metric('CLICKS', 'AD_EXCHANGE_CLICKS'),
+      clicks: reportedClicks || calculatedClicks,
       impressions,
       rpm: adxEcpm,
       adxCtr,
