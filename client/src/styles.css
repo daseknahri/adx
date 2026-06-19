@@ -258,6 +258,35 @@ main {
   flex: 1 1 auto;
 }
 
+.view-tabs {
+  display: inline-flex;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #090b10;
+}
+
+.tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.tab.active {
+  color: white;
+  background: #172033;
+}
+
 .metric-strip,
 .status-rail {
   display: grid;
@@ -398,6 +427,18 @@ main {
   font-weight: 800;
 }
 
+.source-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.12);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .admin-grid {
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);
@@ -413,6 +454,18 @@ main {
 .forms-panel {
   padding: 16px;
   align-self: start;
+}
+
+.client-console {
+  display: grid;
+  grid-template-columns: 320px 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.client-table-panel {
+  padding: 16px;
+  min-width: 0;
 }
 
 .table-panel {
@@ -457,6 +510,12 @@ main {
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.client-list.clean {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .client-row {
@@ -515,6 +574,17 @@ main {
 .client-row em.ended {
   color: #fca5a5;
   background: rgba(251, 113, 133, 0.12);
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.row-action.danger {
+  color: #fecdd3;
+  border-color: rgba(251, 113, 133, 0.35);
 }
 
 input,
@@ -684,7 +754,8 @@ select:focus {
 
   .metric-strip,
   .status-rail,
-  .admin-grid {
+  .admin-grid,
+  .client-console {
     grid-template-columns: 1fr;
   }
 

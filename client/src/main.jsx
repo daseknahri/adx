@@ -16,6 +16,7 @@ import {
   PlugZap,
   Plus,
   RefreshCcw,
+  Trash2,
   ShieldCheck,
   UsersRound
 } from 'lucide-react';
@@ -222,6 +223,7 @@ function ClientDashboard() {
 
 function AdminConsole() {
   const [range, setRange] = useDateRange();
+  const [view, setView] = useState('domains');
   const [overview, setOverview] = useState({ rows: [], totals: {}, latestSync: [] });
   const [clients, setClients] = useState([]);
   const [google, setGoogle] = useState({});
@@ -267,13 +269,24 @@ function AdminConsole() {
       </Controls>
       <AdminStatus google={google} message={message} latestSync={overview.latestSync} />
       <MetricStrip totals={overview.totals} />
-      <div className="admin-grid">
+      <div className="view-tabs" role="tablist" aria-label="Admin sections">
+        <button className={view === 'domains' ? 'tab active' : 'tab'} type="button" onClick={() => setView('domains')}>
+          <LayoutDashboard size={15} />
+          Domains
+        </button>
+        <button className={view === 'clients' ? 'tab active' : 'tab'} type="button" onClick={() => setView('clients')}>
+          <UsersRound size={15} />
+          Clients
+        </button>
+      </div>
+      {view === 'clients' ? (
         <AdminForms clients={clients} onChanged={load} />
+      ) : (
         <div className="panel table-panel">
           <div className="panel-heading">
             <div>
-              <h2>Subdomains</h2>
-              <p>{overview.rows.length} tracked rows</p>
+              <h2>AdX Domains</h2>
+              <p>{overview.rows.length} tracked rows from Ad Manager</p>
             </div>
             <button className="ghost-button" type="button">
               Columns
@@ -282,7 +295,7 @@ function AdminConsole() {
           </div>
           <DomainTable rows={overview.rows} loading={loading} onView={(row) => setSelectedDomain(row)} />
         </div>
-      </div>
+      )}
       {selectedDomain ? (
         <DetailDrawer
           row={selectedDomain}
@@ -394,59 +407,94 @@ function AdminForms({ clients, onChanged }) {
     onChanged();
   }
 
+  async function deleteClient(item) {
+    if (!window.confirm(`Delete ${item.name}? Their login and domain assignments will be removed.`)) return;
+    await api(`/api/admin/clients/${item.id}`, { method: 'DELETE' });
+    onChanged();
+  }
+
   return (
-    <div className="panel forms-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>Clients</h2>
-          <p>Create access and assign domains</p>
-        </div>
-        <UsersRound size={18} />
-      </div>
-      <form className="compact-form" onSubmit={createClient}>
-        <input placeholder="Client name" value={client.name} onChange={setField(setClient, 'name')} required />
-        <input placeholder="Company" value={client.company} onChange={setField(setClient, 'company')} />
-        <input placeholder="Email" value={client.email} onChange={setField(setClient, 'email')} required />
-        <input placeholder="Password" value={client.password} onChange={setField(setClient, 'password')} />
-        <button className="secondary-button" type="submit">
-          <Plus size={15} />
-          Add Client
-        </button>
-      </form>
-      <form className="compact-form split" onSubmit={createSubdomain}>
-        <input placeholder="sub.example.com" value={subdomain.domain} onChange={setField(setSubdomain, 'domain')} required />
-        <input placeholder="Category" value={subdomain.category} onChange={setField(setSubdomain, 'category')} />
-        <input placeholder="Unit price" type="number" value={subdomain.unitPrice} onChange={setField(setSubdomain, 'unitPrice')} />
-        <select value={subdomain.clientId} onChange={setField(setSubdomain, 'clientId')}>
-          <option value="">Unassigned</option>
-          {clients.map((item) => (
-            <option value={item.id} key={item.id}>{item.name}</option>
-          ))}
-        </select>
-        <button className="secondary-button" type="submit">
-          <Globe2 size={15} />
-          Add Domain
-        </button>
-      </form>
-      <div className="client-list">
-        {clients.map((item) => (
-          <div className="client-row" key={item.id}>
-            <div>
-              <strong>{item.name}</strong>
-              <span>{item.email}</span>
-            </div>
-            <em className={item.status}>{item.status}</em>
-            <span>{item.subdomainCount} domains</span>
-            <button
-              className="row-action"
-              type="button"
-              title={item.status === 'active' ? 'Pause client' : 'Activate client'}
-              onClick={() => updateClientStatus(item, item.status === 'active' ? 'paused' : 'active')}
-            >
-              {item.status === 'active' ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
-            </button>
+    <div className="client-console">
+      <div className="panel forms-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Add Client</h2>
+            <p>Create login access</p>
           </div>
-        ))}
+          <UsersRound size={18} />
+        </div>
+        <form className="compact-form" onSubmit={createClient}>
+          <input placeholder="Client name" value={client.name} onChange={setField(setClient, 'name')} required />
+          <input placeholder="Company" value={client.company} onChange={setField(setClient, 'company')} />
+          <input placeholder="Email" value={client.email} onChange={setField(setClient, 'email')} required />
+          <input placeholder="Password" value={client.password} onChange={setField(setClient, 'password')} />
+          <button className="secondary-button" type="submit">
+            <Plus size={15} />
+            Add Client
+          </button>
+        </form>
+      </div>
+      <div className="panel forms-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Add Domain</h2>
+            <p>Assign a rented subdomain</p>
+          </div>
+          <Globe2 size={18} />
+        </div>
+        <form className="compact-form" onSubmit={createSubdomain}>
+          <input placeholder="sub.example.com" value={subdomain.domain} onChange={setField(setSubdomain, 'domain')} required />
+          <input placeholder="Category" value={subdomain.category} onChange={setField(setSubdomain, 'category')} />
+          <input placeholder="Unit price" type="number" value={subdomain.unitPrice} onChange={setField(setSubdomain, 'unitPrice')} />
+          <select value={subdomain.clientId} onChange={setField(setSubdomain, 'clientId')}>
+            <option value="">Unassigned</option>
+            {clients.map((item) => (
+              <option value={item.id} key={item.id}>{item.name}</option>
+            ))}
+          </select>
+          <button className="secondary-button" type="submit">
+            <Globe2 size={15} />
+            Add Domain
+          </button>
+        </form>
+      </div>
+      <div className="panel client-table-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Clients</h2>
+            <p>{clients.length} accounts</p>
+          </div>
+        </div>
+        <div className="client-list clean">
+          {clients.map((item) => (
+            <div className="client-row" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.email}</span>
+              </div>
+              <em className={item.status}>{item.status}</em>
+              <span>{item.subdomainCount} domains</span>
+              <div className="row-actions">
+                <button
+                  className="row-action"
+                  type="button"
+                  title={item.status === 'active' ? 'Pause dashboard' : 'Activate dashboard'}
+                  onClick={() => updateClientStatus(item, item.status === 'active' ? 'paused' : 'active')}
+                >
+                  {item.status === 'active' ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
+                </button>
+                <button
+                  className="row-action danger"
+                  type="button"
+                  title="Delete client"
+                  onClick={() => deleteClient(item)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -524,20 +572,19 @@ function DomainTable({ rows, loading, clientMode, onView }) {
           <tr>
             <th>Domain</th>
             {!clientMode ? <th>Client</th> : null}
-            <th>Visitors</th>
             <th>Page Views</th>
+            <th>Impressions</th>
+            <th>Clicks</th>
             <th>AdX CTR</th>
             <th>AdX eCPM</th>
-            <th>Category</th>
-            <th>Unit Price</th>
             <th>Revenue</th>
-            <th>Active Users</th>
+            <th>Source</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {loading ? (
-            <tr><td className="empty" colSpan={clientMode ? 10 : 11}>Loading...</td></tr>
+            <tr><td className="empty" colSpan={clientMode ? 8 : 9}>Loading...</td></tr>
           ) : rows.length ? rows.map((row) => (
             <tr key={`${row.id}-${row.clientId || 'client'}`}>
               <td>
@@ -548,14 +595,13 @@ function DomainTable({ rows, loading, clientMode, onView }) {
                 </div>
               </td>
               {!clientMode ? <td>{row.clientName || 'Unassigned'}</td> : null}
-              <td>{number(row.visitors)}</td>
               <td>{number(row.pageViews)}</td>
+              <td>{number(row.impressions)}</td>
+              <td>{number(row.clicks)}</td>
               <td>{percent(row.adxCtr)}</td>
               <td>{money(row.adxEcpm)}</td>
-              <td>{row.category}</td>
-              <td>{money(row.unitPrice)}</td>
               <td className="money">{money(row.earnings)}</td>
-              <td>{number(row.activeUsers)}</td>
+              <td><span className="source-pill">{row.source || 'empty'}</span></td>
               <td>
                 <button className="row-action" type="button" onClick={() => onView(row)} title="View">
                   <Eye size={15} />
@@ -563,7 +609,7 @@ function DomainTable({ rows, loading, clientMode, onView }) {
               </td>
             </tr>
           )) : (
-            <tr><td className="empty" colSpan={clientMode ? 10 : 11}>No results.</td></tr>
+            <tr><td className="empty" colSpan={clientMode ? 8 : 9}>No results.</td></tr>
           )}
         </tbody>
       </table>

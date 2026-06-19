@@ -91,6 +91,24 @@ export function adminRouter(db, config) {
     res.json({ ok: true });
   });
 
+  router.delete('/clients/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'invalid_client' });
+
+    const result = db.transaction(() => {
+      const client = db.prepare('SELECT id, name, email FROM clients WHERE id = ?').get(id);
+      if (!client) return { changes: 0 };
+      db.prepare('DELETE FROM users WHERE client_id = ? AND role = ?').run(id, 'client');
+      db.prepare('DELETE FROM client_subdomains WHERE client_id = ?').run(id);
+      const deleted = db.prepare('DELETE FROM clients WHERE id = ?').run(id);
+      audit(db, req, 'client.deleted', 'client', id, client);
+      return deleted;
+    })();
+
+    if (!result.changes) return res.status(404).json({ error: 'not_found' });
+    res.json({ ok: true });
+  });
+
   router.get('/subdomains', (req, res) => {
     res.json({ subdomains: domainRows(db, parseRange(req.query)) });
   });
@@ -245,7 +263,8 @@ function domainRows(db, range) {
       COALESCE(SUM(m.impressions), 0) AS impressions,
       COALESCE(AVG(NULLIF(m.rpm, 0)), 0) AS rpm,
       COALESCE(AVG(NULLIF(m.adx_ctr, 0)), 0) AS adxCtr,
-      COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0) AS adxEcpm
+      COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0) AS adxEcpm,
+      COALESCE(MAX(m.source), 'empty') AS source
     FROM subdomains s
     LEFT JOIN client_subdomains cs ON cs.subdomain_id = s.id
     LEFT JOIN clients c ON c.id = cs.client_id

@@ -123,6 +123,27 @@ test('admin can inspect daily metrics for any subdomain', async (t) => {
   assert.ok(daily.body.rows[0].date);
 });
 
+test('admin can delete a client account without deleting subdomains', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const client = app.db.prepare('SELECT * FROM clients WHERE email = ?').get(app.config.seedClientEmail);
+  const subdomainCount = app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count;
+
+  const deleted = await request(app.baseUrl, `/api/admin/clients/${client.id}`, {
+    method: 'DELETE',
+    headers: { cookie }
+  });
+
+  assert.equal(deleted.response.status, 200);
+  assert.equal(deleted.body.ok, true);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM clients WHERE id = ?').get(client.id).count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM users WHERE client_id = ?').get(client.id).count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM client_subdomains WHERE client_id = ?').get(client.id).count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count, subdomainCount);
+});
+
 test('missing Google OAuth config returns a friendly admin error', async (t) => {
   const app = await startTestApp({ googleClientId: '', googleClientSecret: '' });
   t.after(() => app.close());

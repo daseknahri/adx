@@ -24,7 +24,8 @@ export function clientRouter(db) {
         COALESCE(SUM(m.impressions), 0) AS impressions,
         COALESCE(AVG(NULLIF(m.rpm, 0)), 0) AS rpm,
         COALESCE(AVG(NULLIF(m.adx_ctr, 0)), 0) AS adxCtr,
-        COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0) AS adxEcpm
+        COALESCE(AVG(NULLIF(m.adx_ecpm, 0)), 0) AS adxEcpm,
+        COALESCE(MAX(m.source), 'empty') AS source
       FROM subdomains s
       INNER JOIN client_subdomains cs ON cs.subdomain_id = s.id
       LEFT JOIN metrics_daily m
