@@ -11,6 +11,7 @@ import { attachAuth, requireAuth } from './middleware.js';
 import { authRouter } from './routes/auth.js';
 import { adminRouter } from './routes/admin.js';
 import { clientRouter } from './routes/client.js';
+import { cronRouter } from './routes/cron.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +50,7 @@ export function createApp({ db, config: appConfig = config }) {
   });
 
   app.use('/api/auth', authRouter(db, appConfig));
+  app.use('/api/cron', cronRouter(db, appConfig));
   app.use('/api/admin', adminRouter(db, appConfig));
   app.use('/api/client', clientRouter(db, appConfig));
 

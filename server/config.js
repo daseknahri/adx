@@ -36,5 +36,6 @@ export const config = {
     .map((item) => item.trim())
     .filter(Boolean),
   reportCurrency: process.env.REPORT_CURRENCY || 'MAD',
-  enableGoogleSync: process.env.ENABLE_GOOGLE_SYNC === 'true'
+  enableGoogleSync: process.env.ENABLE_GOOGLE_SYNC === 'true',
+  cronSecret: process.env.CRON_SECRET || ''
 };

@@ -49,7 +49,7 @@ export async function syncGoogleReports(db, config, range) {
       sourceMode = 'mock';
     }
 
-    const rowsSynced = writeMetrics(
+    const writeResult = writeMetrics(
       db,
       domains,
       range,
@@ -57,8 +57,16 @@ export async function syncGoogleReports(db, config, range) {
       ga4Rows,
       sourceMode
     );
-    finishRun(db, syncRunId, 'success', `Synced ${rowsSynced} domain rows`, rowsSynced);
-    return { ok: true, syncRunId, rowsSynced, mode: sourceMode, range };
+    const message = syncSuccessMessage(writeResult, sourceMode);
+    finishRun(db, syncRunId, 'success', message, writeResult.rowsSynced);
+    return {
+      ok: true,
+      syncRunId,
+      rowsSynced: writeResult.rowsSynced,
+      mode: sourceMode,
+      range,
+      stats: writeResult
+    };
   } catch (error) {
     finishRun(db, syncRunId, 'failed', error.message, 0);
     return { ok: false, syncRunId, error: error.message };
@@ -104,8 +112,32 @@ function latestSyncedDate(db) {
 
 function writeMetrics(db, domains, range, revenueRows, ga4Rows, sourceMode) {
   const dates = listDates(range.from, range.to);
-  const revenueByKey = new Map(revenueRows.map((row) => [metricKey(row.domain, row.date || range.to), row]));
-  const ga4ByKey = new Map(ga4Rows.map((row) => [metricKey(row.domain, row.date || range.to), row]));
+  const domainIndex = buildDomainIndex(domains);
+  const revenueByKey = new Map();
+  const ga4ByKey = new Map();
+  let unmatchedRows = 0;
+
+  for (const row of revenueRows) {
+    const indexedDomain = domainIndex.get(normalizeDomain(row.domain));
+    if (!indexedDomain) {
+      unmatchedRows += 1;
+      continue;
+    }
+    revenueByKey.set(metricKey(indexedDomain.domain, row.date || range.to), row);
+  }
+
+  for (const row of ga4Rows) {
+    const indexedDomain = domainIndex.get(normalizeDomain(row.domain));
+    if (!indexedDomain) {
+      unmatchedRows += 1;
+      continue;
+    }
+    ga4ByKey.set(metricKey(indexedDomain.domain, row.date || range.to), row);
+  }
+
+  const keysToWrite = sourceMode === 'mock'
+    ? domains.flatMap((domain) => dates.map((metricDate) => metricKey(domain.domain, metricDate)))
+    : Array.from(new Set([...revenueByKey.keys(), ...ga4ByKey.keys()]));
   const upsert = db.prepare(`
     INSERT INTO metrics_daily (
       subdomain_id, metric_date, visitors, page_views, bounce_rate, engaged_sessions,
@@ -131,33 +163,54 @@ function writeMetrics(db, domains, range, revenueRows, ga4Rows, sourceMode) {
 
   const tx = db.transaction(() => {
     let count = 0;
-    for (const domain of domains) {
-      for (const metricDate of dates) {
-        const key = metricKey(domain.domain, metricDate);
-        const ad = revenueByKey.get(key) || {};
-        const ga = ga4ByKey.get(key) || {};
-        upsert.run({
-          subdomainId: domain.id,
-          metricDate,
-          visitors: ga.activeUsers || 0,
-          pageViews: ad.pageViews || ga.pageViews || 0,
-          bounceRate: ga.bounceRate || 0,
-          engagedSessions: ga.engagedSessions || 0,
-          earnings: ad.earnings || 0,
-          activeUsers: ga.activeUsers || 0,
-          clicks: ad.clicks || 0,
-          impressions: ad.impressions || 0,
-          rpm: ad.rpm || 0,
-          adxCtr: ad.adxCtr || 0,
-          adxEcpm: ad.adxEcpm || 0,
-          source: metricSource(ad, ga, sourceMode)
-        });
-        count += 1;
-      }
+    for (const key of keysToWrite) {
+      const [domainName, metricDate] = splitMetricKey(key);
+      const domain = domainIndex.get(normalizeDomain(domainName));
+      if (!domain) continue;
+      const ad = revenueByKey.get(key) || {};
+      const ga = ga4ByKey.get(key) || {};
+      upsert.run({
+        subdomainId: domain.id,
+        metricDate,
+        visitors: ga.activeUsers || 0,
+        pageViews: ad.pageViews || ga.pageViews || 0,
+        bounceRate: ga.bounceRate || 0,
+        engagedSessions: ga.engagedSessions || 0,
+        earnings: ad.earnings || 0,
+        activeUsers: ga.activeUsers || 0,
+        clicks: ad.clicks || 0,
+        impressions: ad.impressions || 0,
+        rpm: ad.rpm || 0,
+        adxCtr: ad.adxCtr || 0,
+        adxEcpm: ad.adxEcpm || 0,
+        source: metricSource(ad, ga, sourceMode)
+      });
+      count += 1;
     }
     return count;
   });
-  return tx();
+  const rowsSynced = tx();
+  return {
+    rowsSynced,
+    datesRequested: dates.length,
+    domainsTracked: domains.length,
+    adRowsReturned: revenueRows.length,
+    analyticsRowsReturned: ga4Rows.length,
+    unmatchedRows,
+    skippedEmptyRows: sourceMode === 'mock' ? 0 : Math.max(0, domains.length * dates.length - rowsSynced)
+  };
+}
+
+function syncSuccessMessage(result, sourceMode) {
+  const returned = result.adRowsReturned + result.analyticsRowsReturned;
+  const parts = [`Synced ${result.rowsSynced} domain rows`];
+  if (sourceMode !== 'mock') {
+    parts.push(sourceMode);
+    parts.push(`${returned} returned`);
+    if (result.unmatchedRows) parts.push(`${result.unmatchedRows} unmatched`);
+    if (result.skippedEmptyRows) parts.push(`${result.skippedEmptyRows} unchanged`);
+  }
+  return parts.join(' · ');
 }
 
 function metricSource(ad, ga, sourceMode) {
@@ -198,7 +251,36 @@ function createMockGa4(domains, range) {
 }
 
 function metricKey(domain, date) {
-  return `${domain}|${date}`;
+  return `${normalizeDomain(domain)}|${date}`;
+}
+
+function splitMetricKey(key) {
+  const separatorIndex = key.lastIndexOf('|');
+  return [key.slice(0, separatorIndex), key.slice(separatorIndex + 1)];
+}
+
+function buildDomainIndex(domains) {
+  const index = new Map();
+  for (const domain of domains) {
+    const normalized = normalizeDomain(domain.domain);
+    index.set(normalized, domain);
+    if (normalized.startsWith('www.')) {
+      index.set(normalized.slice(4), domain);
+    } else {
+      index.set(`www.${normalized}`, domain);
+    }
+  }
+  return index;
+}
+
+function normalizeDomain(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .replace(/:\d+$/, '');
 }
 
 function listDates(from, to) {

@@ -75,6 +75,37 @@ test('clients cannot run mock Google sync', async (t) => {
   assert.equal(sync.body.error, 'forbidden');
 });
 
+test('cron latest sync requires the configured secret', async (t) => {
+  const disabled = await startTestApp({ enableGoogleSync: false });
+  t.after(() => disabled.close());
+
+  const disabledSync = await request(disabled.baseUrl, '/api/cron/sync/google/latest', {
+    method: 'POST'
+  });
+  assert.equal(disabledSync.response.status, 404);
+
+  const app = await startTestApp({
+    enableGoogleSync: false,
+    cronSecret: 'test-cron-secret-value-123'
+  });
+  t.after(() => app.close());
+
+  const unauthorized = await request(app.baseUrl, '/api/cron/sync/google/latest', {
+    method: 'POST',
+    headers: { authorization: 'Bearer wrong-secret' }
+  });
+  assert.equal(unauthorized.response.status, 401);
+
+  const sync = await request(app.baseUrl, '/api/cron/sync/google/latest', {
+    method: 'POST',
+    headers: { authorization: 'Bearer test-cron-secret-value-123' }
+  });
+  assert.equal(sync.response.status, 200);
+  assert.equal(sync.body.ok, true);
+  assert.equal(sync.body.mode, 'mock');
+  assert.ok(sync.body.rowsSynced > 0);
+});
+
 test('admin latest Google refresh starts at the newest stored sync date', async (t) => {
   const app = await startTestApp({ enableGoogleSync: false });
   t.after(() => app.close());
@@ -186,7 +217,7 @@ test('connected Google OAuth uses Ad Manager even when demo env flag is false', 
       return Response.json({
         rows: [
           {
-            dimensionValues: [{ value: 'news.demo.example.com' }],
+            dimensionValues: [{ value: 'https://www.news.demo.example.com/report-path' }],
             metricValueGroups: [
               {
                 values: [
@@ -213,6 +244,10 @@ test('connected Google OAuth uses Ad Manager even when demo env flag is false', 
   assert.equal(sync.response.status, 200);
   assert.equal(sync.body.ok, true);
   assert.equal(sync.body.mode, 'admanager');
+  assert.equal(sync.body.rowsSynced, 1);
+  assert.equal(sync.body.stats.adRowsReturned, 1);
+  assert.equal(sync.body.stats.unmatchedRows, 0);
+  assert.equal(sync.body.stats.skippedEmptyRows, 2);
   assert.deepEqual(patchedRanges, [
     {
       fixed: {
@@ -237,4 +272,132 @@ test('connected Google OAuth uses Ad Manager even when demo env flag is false', 
   assert.equal(row.pageViews, 951);
   assert.equal(row.adxCtr, 2.63);
   assert.equal(row.adxEcpm, 25.42);
+});
+
+test('live sync keeps existing stored metrics when Ad Manager omits a tracked domain', async (t) => {
+  const app = await startTestApp({
+    enableGoogleSync: false,
+    googleClientId: 'client-id',
+    googleClientSecret: 'client-secret',
+    adManagerNetworkCode: '23350042371',
+    adManagerReportId: '7704780540',
+    adManagerReportMetrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
+    adManagerReportDimensions: ['SITE']
+  });
+  t.after(() => app.close());
+
+  app.db.prepare(`
+    INSERT INTO google_connections (id, refresh_token, expires_at, account_id)
+    VALUES (1, 'refresh-token', 0, '23350042371')
+  `).run();
+  const sportsId = app.db.prepare('SELECT id FROM subdomains WHERE domain = ?').get('sports.demo.example.com').id;
+  app.db.prepare(`
+    INSERT INTO metrics_daily (
+      subdomain_id, metric_date, visitors, page_views, bounce_rate, engaged_sessions,
+      earnings, active_users, clicks, impressions, rpm, adx_ctr, adx_ecpm, source
+    )
+    VALUES (?, '2026-06-19', 0, 777, 0, 0, 77.77, 0, 0, 0, 0, 0, 0, 'admanager')
+    ON CONFLICT(subdomain_id, metric_date) DO UPDATE SET
+      earnings = excluded.earnings,
+      page_views = excluded.page_views,
+      source = excluded.source
+  `).run(sportsId);
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (url, options) => {
+    const target = String(url);
+    if (target.startsWith(app.baseUrl)) {
+      return originalFetch(url, options);
+    }
+    if (target.includes('oauth2.googleapis.com')) {
+      return Response.json({ access_token: 'access-token', expires_in: 3600 });
+    }
+    if (target.endsWith('/networks/23350042371/reports/7704780540')) {
+      return Response.json({
+        name: 'networks/23350042371/reports/7704780540',
+        reportDefinition: {
+          dimensions: ['SITE'],
+          metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
+          dateRange: { relative: 'TODAY' }
+        }
+      });
+    }
+    if (target.includes('/networks/23350042371/reports/7704780540?updateMask=reportDefinition.dateRange')) {
+      return Response.json(JSON.parse(options.body));
+    }
+    if (target.endsWith('/networks/23350042371/reports/7704780540:run')) {
+      return Response.json({ name: 'networks/23350042371/operations/reports/runs/op-keep-existing' });
+    }
+    if (target.includes('/operations/reports/runs/op-keep-existing')) {
+      return Response.json({
+        done: true,
+        response: {
+          reportResult: 'networks/23350042371/reports/7704780540/results/result-keep-existing'
+        }
+      });
+    }
+    if (target.includes('/results/result-keep-existing:fetchRows')) {
+      return Response.json({
+        rows: [
+          {
+            dimensionValues: [{ value: 'news.demo.example.com' }],
+            metricValueGroups: [
+              {
+                values: [
+                  { value: 'MAD9.50' },
+                  { value: '1.1%' },
+                  { value: 'MAD10.00' },
+                  { value: '950' }
+                ]
+              }
+            ]
+          },
+          {
+            dimensionValues: [{ value: 'untracked.example.com' }],
+            metricValueGroups: [
+              {
+                values: [
+                  { value: 'MAD99.00' },
+                  { value: '2.2%' },
+                  { value: 'MAD11.00' },
+                  { value: '9000' }
+                ]
+              }
+            ]
+          }
+        ]
+      });
+    }
+    throw new Error(`Unexpected fetch ${target}`);
+  };
+
+  const sync = await request(app.baseUrl, '/api/admin/sync/google', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ from: '2026-06-19', to: '2026-06-19' })
+  });
+
+  assert.equal(sync.response.status, 200);
+  assert.equal(sync.body.ok, true);
+  assert.equal(sync.body.rowsSynced, 1);
+  assert.equal(sync.body.stats.adRowsReturned, 2);
+  assert.equal(sync.body.stats.unmatchedRows, 1);
+  assert.equal(sync.body.stats.skippedEmptyRows, 2);
+
+  const sports = app.db.prepare(`
+    SELECT earnings, page_views AS pageViews, source
+    FROM metrics_daily
+    WHERE subdomain_id = (SELECT id FROM subdomains WHERE domain = 'sports.demo.example.com')
+      AND metric_date = '2026-06-19'
+  `).get();
+
+  assert.equal(sports.earnings, 77.77);
+  assert.equal(sports.pageViews, 777);
+  assert.equal(sports.source, 'admanager');
 });

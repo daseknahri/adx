@@ -30,6 +30,7 @@ export function testConfig(overrides = {}) {
     adManagerReportDimensions: ['SITE'],
     reportCurrency: 'MAD',
     enableGoogleSync: false,
+    cronSecret: '',
     ...overrides
   };
 }

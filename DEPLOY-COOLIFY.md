@@ -47,6 +47,7 @@ AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,TOTAL
 REPORT_CURRENCY=MAD
 GA4_PROPERTY_ID=
 ENABLE_GOOGLE_SYNC=false
+CRON_SECRET=replace-with-a-long-random-secret
 ```
 
 Generate production secrets locally:
@@ -57,6 +58,22 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Use one generated value for `SESSION_SECRET` and a different 64-character hex
 value for `TOKEN_ENCRYPTION_KEY`.
+
+## Automatic AdX Refresh
+
+Set `CRON_SECRET` to a long random value if you want Coolify to refresh AdX data
+without opening the dashboard. Then add a Coolify scheduled task that calls:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  https://reports.example.com/api/cron/sync/google/latest
+```
+
+Use the same public domain as `APP_URL`. A good starting schedule is every hour
+while the day is active, or once per day if you only need finalized historical
+numbers. The endpoint refreshes from the newest stored metric date through
+today, and the sync history in the admin dashboard will show the result.
 
 ## Google Ad Manager OAuth Setup
 

@@ -459,7 +459,15 @@ function SyncHistory({ runs = [] }) {
 
 function syncMessage(result) {
   const rangeText = result.range ? ` ${result.range.from} - ${result.range.to}` : '';
-  return `Synced ${result.rowsSynced} rows (${result.mode})${rangeText}`;
+  const stats = result.stats || {};
+  const details = [];
+  if (stats.adRowsReturned || stats.analyticsRowsReturned) {
+    details.push(`${number(Number(stats.adRowsReturned || 0) + Number(stats.analyticsRowsReturned || 0))} returned`);
+  }
+  if (stats.unmatchedRows) details.push(`${number(stats.unmatchedRows)} unmatched`);
+  if (stats.skippedEmptyRows) details.push(`${number(stats.skippedEmptyRows)} unchanged`);
+  const detailText = details.length ? ` · ${details.join(' · ')}` : '';
+  return `Synced ${number(result.rowsSynced)} rows (${result.mode})${detailText}${rangeText}`;
 }
 
 function AdminForms({ clients, onChanged }) {
