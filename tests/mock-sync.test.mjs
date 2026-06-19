@@ -66,3 +66,95 @@ test('clients cannot run mock Google sync', async (t) => {
   assert.equal(sync.response.status, 403);
   assert.equal(sync.body.error, 'forbidden');
 });
+
+test('connected Google OAuth uses Ad Manager even when demo env flag is false', async (t) => {
+  const app = await startTestApp({
+    enableGoogleSync: false,
+    googleClientId: 'client-id',
+    googleClientSecret: 'client-secret',
+    adManagerNetworkCode: '23350042371',
+    adManagerReportId: '7704780540',
+    adManagerReportMetrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
+    adManagerReportDimensions: ['SITE']
+  });
+  t.after(() => app.close());
+
+  app.db.prepare(`
+    INSERT INTO google_connections (id, refresh_token, expires_at, account_id)
+    VALUES (1, 'refresh-token', 0, '23350042371')
+  `).run();
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (url, options) => {
+    const target = String(url);
+    if (target.startsWith(app.baseUrl)) {
+      return originalFetch(url, options);
+    }
+    if (target.includes('oauth2.googleapis.com')) {
+      return Response.json({ access_token: 'access-token', expires_in: 3600 });
+    }
+    if (target.endsWith('/networks/23350042371/reports/7704780540:run')) {
+      return Response.json({ name: 'networks/23350042371/operations/reports/runs/op-1' });
+    }
+    if (target.includes('/operations/reports/runs/op-1')) {
+      return Response.json({
+        done: true,
+        response: {
+          reportResult: 'networks/23350042371/reports/7704780540/results/result-1'
+        }
+      });
+    }
+    if (target.includes('/results/result-1:fetchRows')) {
+      return Response.json({
+        rows: [
+          {
+            dimensionValues: [{ value: 'news.demo.example.com' }],
+            metricValueGroups: [
+              {
+                values: [
+                  { value: 'MAD24.18' },
+                  { value: '2.63%' },
+                  { value: 'MAD25.42' },
+                  { value: '951' }
+                ]
+              }
+            ]
+          }
+        ]
+      });
+    }
+    throw new Error(`Unexpected fetch ${target}`);
+  };
+
+  const sync = await request(app.baseUrl, '/api/admin/sync/google', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ from: '2026-06-19', to: '2026-06-19' })
+  });
+
+  assert.equal(sync.response.status, 200);
+  assert.equal(sync.body.ok, true);
+  assert.equal(sync.body.mode, 'admanager');
+
+  const row = app.db.prepare(`
+    SELECT earnings, impressions, page_views AS pageViews, adx_ctr AS adxCtr,
+      adx_ecpm AS adxEcpm, source
+    FROM metrics_daily m
+    INNER JOIN subdomains s ON s.id = m.subdomain_id
+    WHERE s.domain = 'news.demo.example.com'
+      AND m.metric_date = '2026-06-19'
+  `).get();
+
+  assert.equal(row.source, 'admanager');
+  assert.equal(row.earnings, 24.18);
+  assert.equal(row.impressions, 951);
+  assert.equal(row.pageViews, 951);
+  assert.equal(row.adxCtr, 2.63);
+  assert.equal(row.adxEcpm, 25.42);
+});

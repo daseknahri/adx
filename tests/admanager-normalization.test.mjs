@@ -30,10 +30,10 @@ test('normalizes Ad Manager report rows with configured Site metrics', () => {
       date: '2026-06-18',
       domain: 'allrecipe.panrecipe.com',
       earnings: 23.48,
-      pageViews: 0,
+      pageViews: 635,
       activeUsers: 0,
       clicks: 0,
-      impressions: 0,
+      impressions: 635,
       rpm: 36.97,
       adxCtr: 5.98,
       adxEcpm: 36.97
@@ -65,4 +65,36 @@ test('normalizes named Ad Manager row values when date is included', () => {
   assert.equal(rows[0].adxCtr, 1.84);
   assert.equal(rows[0].adxEcpm, 19.96);
   assert.equal(rows[0].pageViews, 1200);
+});
+
+test('normalizes Ad Manager total impressions by metric position', () => {
+  const rows = normalizeAdManagerRows({
+    rows: [
+      {
+        dimensionValues: [{ value: 'allrecipes.panrecipe.com' }],
+        metricValueGroups: [
+          {
+            values: [
+              { value: 'MAD24.18' },
+              { value: '2.63%' },
+              { value: 'MAD25.42' },
+              { value: '951' }
+            ]
+          }
+        ]
+      }
+    ]
+  }, {
+    range: { from: '2026-06-19', to: '2026-06-19' },
+    dimensions: ['SITE'],
+    metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS']
+  });
+
+  assert.equal(rows[0].domain, 'allrecipes.panrecipe.com');
+  assert.equal(rows[0].date, '2026-06-19');
+  assert.equal(rows[0].earnings, 24.18);
+  assert.equal(rows[0].adxCtr, 2.63);
+  assert.equal(rows[0].adxEcpm, 25.42);
+  assert.equal(rows[0].impressions, 951);
+  assert.equal(rows[0].pageViews, 951);
 });

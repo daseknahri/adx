@@ -7,11 +7,13 @@ const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 export function getGoogleStatus(db, config) {
   const row = db.prepare('SELECT * FROM google_connections WHERE id = 1').get();
   const scopes = googleScopes(config);
+  const connected = Boolean(row?.refresh_token);
   return {
-    connected: Boolean(row?.refresh_token),
+    connected,
     connectedEmail: row?.connected_email || null,
     accountId: row?.account_id || config.adManagerNetworkCode || config.adsenseAccountId || null,
-    syncEnabled: config.enableGoogleSync,
+    syncEnabled: config.enableGoogleSync || connected,
+    demoMode: !config.enableGoogleSync && !connected,
     hasClientConfig: Boolean(config.googleClientId && config.googleClientSecret),
     provider: config.adManagerNetworkCode && config.adManagerReportId ? 'admanager' : 'adsense',
     reportId: config.adManagerReportId || null,

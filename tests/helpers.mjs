@@ -26,7 +26,7 @@ export function testConfig(overrides = {}) {
     ga4PropertyId: '',
     adManagerNetworkCode: '',
     adManagerReportId: '',
-    adManagerReportMetrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM'],
+    adManagerReportMetrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
     adManagerReportDimensions: ['SITE'],
     reportCurrency: 'MAD',
     enableGoogleSync: false,

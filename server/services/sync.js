@@ -10,8 +10,9 @@ export async function syncGoogleReports(db, config, range) {
     let revenueRows = [];
     let ga4Rows = [];
     let sourceMode = 'mock';
+    const canUseLiveSync = config.enableGoogleSync || hasGoogleConnection(db);
 
-    if (config.enableGoogleSync) {
+    if (canUseLiveSync) {
       const accessToken = await getAccessToken(db, config);
       if (!accessToken) throw new Error('Google is not connected');
       if (config.adManagerNetworkCode && config.adManagerReportId) {
@@ -78,6 +79,11 @@ function finishRun(db, id, status, message, rowsSynced) {
     SET status = ?, message = ?, rows_synced = ?, finished_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(status, message, rowsSynced, id);
+}
+
+function hasGoogleConnection(db) {
+  const row = db.prepare('SELECT refresh_token AS refreshToken FROM google_connections WHERE id = 1').get();
+  return Boolean(row?.refreshToken);
 }
 
 function writeMetrics(db, domains, range, revenueRows, ga4Rows, sourceMode) {

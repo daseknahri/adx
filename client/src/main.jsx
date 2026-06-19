@@ -621,13 +621,29 @@ function PageTitle({ title, subtitle }) {
 }
 
 function Controls({ range, setRange, onRefresh, onColumns, children }) {
+  function updateFrom(from) {
+    setRange({
+      from,
+      to: from > range.to ? from : range.to,
+      preset: 'Custom'
+    });
+  }
+
+  function updateTo(to) {
+    setRange({
+      from: to < range.from ? to : range.from,
+      to,
+      preset: 'Custom'
+    });
+  }
+
   return (
     <div className="controls">
       <div className="date-input">
         <CalendarDays size={16} />
-        <input type="date" value={range.from} onChange={(event) => setRange({ ...range, from: event.target.value })} />
+        <input type="date" value={range.from} onChange={(event) => updateFrom(event.target.value)} />
         <span>-</span>
-        <input type="date" value={range.to} onChange={(event) => setRange({ ...range, to: event.target.value })} />
+        <input type="date" value={range.to} onChange={(event) => updateTo(event.target.value)} />
       </div>
       <div className="preset-row">
         {Object.keys(datePresets).map((label) => (
@@ -816,7 +832,7 @@ async function api(path, options = {}) {
 }
 
 function isoDate(date) {
-  return date.toISOString().slice(0, 10);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function pad(value) {

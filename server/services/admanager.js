@@ -90,7 +90,8 @@ export function normalizeAdManagerRows(payload, options = {}) {
   const metrics = options.metrics?.length ? options.metrics : readHeaderNames(payload.metricHeaders) || [
     'REVENUE',
     'AD_EXCHANGE_CTR',
-    'AD_EXCHANGE_AVERAGE_ECPM'
+    'AD_EXCHANGE_AVERAGE_ECPM',
+    'TOTAL_IMPRESSIONS'
   ];
   const metricNames = metrics.map(normalizeName);
   const dimensionNames = dimensions.map(normalizeName);
@@ -120,7 +121,16 @@ export function normalizeAdManagerRows(payload, options = {}) {
     const earnings = metric('REVENUE', 'TOTAL_REVENUE', 'AD_EXCHANGE_REVENUE', 'ESTIMATED_EARNINGS');
     const adxCtr = metric('AD_EXCHANGE_CTR', 'CTR');
     const adxEcpm = metric('AD_EXCHANGE_AVERAGE_ECPM', 'AD_EXCHANGE_ECPM', 'AVERAGE_ECPM', 'ECPM');
-    const pageViews = metric('PAGE_VIEWS', 'AD_EXCHANGE_PAGE_VIEWS', 'IMPRESSIONS');
+    const reportedImpressions = metric(
+      'TOTAL_IMPRESSIONS',
+      'IMPRESSIONS',
+      'AD_EXCHANGE_IMPRESSIONS',
+      'AD_SERVER_IMPRESSIONS',
+      'AD_EXCHANGE_RESPONSES_SERVED'
+    );
+    const calculatedImpressions = earnings > 0 && adxEcpm > 0 ? Math.round((earnings / adxEcpm) * 1000) : 0;
+    const impressions = reportedImpressions || calculatedImpressions;
+    const pageViews = metric('PAGE_VIEWS', 'AD_EXCHANGE_PAGE_VIEWS') || impressions;
 
     return {
       date,
@@ -129,7 +139,7 @@ export function normalizeAdManagerRows(payload, options = {}) {
       pageViews,
       activeUsers: 0,
       clicks: metric('CLICKS', 'AD_EXCHANGE_CLICKS'),
-      impressions: metric('IMPRESSIONS', 'AD_EXCHANGE_IMPRESSIONS'),
+      impressions,
       rpm: adxEcpm,
       adxCtr,
       adxEcpm

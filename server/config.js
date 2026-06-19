@@ -27,7 +27,7 @@ export const config = {
   ga4PropertyId: process.env.GA4_PROPERTY_ID || '',
   adManagerNetworkCode: process.env.AD_MANAGER_NETWORK_CODE || '',
   adManagerReportId: process.env.AD_MANAGER_REPORT_ID || '',
-  adManagerReportMetrics: (process.env.AD_MANAGER_REPORT_METRICS || 'REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM')
+  adManagerReportMetrics: (process.env.AD_MANAGER_REPORT_METRICS || 'REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,TOTAL_IMPRESSIONS')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean),
