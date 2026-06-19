@@ -11,6 +11,7 @@
     "build": "vite build --outDir server/public",
     "start": "node server/index.js",
     "test": "node --test",
+    "smoke": "node scripts/smoke.mjs",
     "check": "node --check server/index.js && node --check server/tasks/cron-refresh.mjs && node --check scripts/dev.mjs && node --check scripts/smoke.mjs"
   },
   "dependencies": {
