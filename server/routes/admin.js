@@ -188,6 +188,24 @@ export function adminRouter(db, config) {
     res.json({ ok: true });
   });
 
+  router.delete('/subdomains/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'invalid_domain' });
+
+    const result = db.transaction(() => {
+      const subdomain = db.prepare('SELECT id, domain FROM subdomains WHERE id = ?').get(id);
+      if (!subdomain) return { changes: 0 };
+      db.prepare('DELETE FROM metrics_daily WHERE subdomain_id = ?').run(id);
+      db.prepare('DELETE FROM client_subdomains WHERE subdomain_id = ?').run(id);
+      const deleted = db.prepare('DELETE FROM subdomains WHERE id = ?').run(id);
+      audit(db, req, 'subdomain.deleted', 'subdomain', id, subdomain);
+      return deleted;
+    })();
+
+    if (!result.changes) return res.status(404).json({ error: 'not_found' });
+    res.json({ ok: true });
+  });
+
   router.post('/subdomains/:id/assign', (req, res) => {
     const subdomainId = Number(req.params.id);
     const clientId = Number(req.body?.clientId);

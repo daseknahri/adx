@@ -258,6 +258,12 @@ function AdminConsole() {
     await load();
   }
 
+  async function deleteSubdomain(row) {
+    if (!window.confirm(`Remove ${row.domain}? Its assignments and stored metrics will be deleted.`)) return;
+    await api(`/api/admin/subdomains/${row.id}`, { method: 'DELETE' });
+    await load();
+  }
+
   return (
     <section className="workspace">
       <PageTitle title="Admin Console" subtitle="Clients, subdomains and AdX sync" />
@@ -293,7 +299,12 @@ function AdminConsole() {
               <ChevronDown size={15} />
             </button>
           </div>
-          <DomainTable rows={overview.rows} loading={loading} onView={(row) => setSelectedDomain(row)} />
+          <DomainTable
+            rows={overview.rows}
+            loading={loading}
+            onView={(row) => setSelectedDomain(row)}
+            onDelete={deleteSubdomain}
+          />
         </div>
       )}
       {selectedDomain ? (
@@ -584,7 +595,7 @@ function MetricStrip({ totals = {} }) {
   );
 }
 
-function DomainTable({ rows, loading, clientMode, onView }) {
+function DomainTable({ rows, loading, clientMode, onView, onDelete }) {
   return (
     <div className="domain-table-wrap">
       <table className="domain-table">
@@ -623,9 +634,16 @@ function DomainTable({ rows, loading, clientMode, onView }) {
               <td className="money">{money(row.earnings)}</td>
               <td><span className="source-pill">{row.source || 'empty'}</span></td>
               <td>
-                <button className="row-action" type="button" onClick={() => onView(row)} title="View">
-                  <Eye size={15} />
-                </button>
+                <div className="row-actions">
+                  <button className="row-action" type="button" onClick={() => onView(row)} title="View">
+                    <Eye size={15} />
+                  </button>
+                  {!clientMode && onDelete ? (
+                    <button className="row-action danger" type="button" onClick={() => onDelete(row)} title="Remove subdomain">
+                      <Trash2 size={15} />
+                    </button>
+                  ) : null}
+                </div>
               </td>
             </tr>
           )) : (

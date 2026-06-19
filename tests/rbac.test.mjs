@@ -144,6 +144,27 @@ test('admin can delete a client account without deleting subdomains', async (t) 
   assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count, subdomainCount);
 });
 
+test('admin can delete a subdomain and its stored metrics without deleting clients', async (t) => {
+  const app = await startTestApp();
+  t.after(() => app.close());
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const subdomain = app.db.prepare('SELECT id FROM subdomains ORDER BY id LIMIT 1').get();
+  const clientCount = app.db.prepare('SELECT COUNT(*) AS count FROM clients').get().count;
+
+  const deleted = await request(app.baseUrl, `/api/admin/subdomains/${subdomain.id}`, {
+    method: 'DELETE',
+    headers: { cookie }
+  });
+
+  assert.equal(deleted.response.status, 200);
+  assert.equal(deleted.body.ok, true);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM subdomains WHERE id = ?').get(subdomain.id).count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM client_subdomains WHERE subdomain_id = ?').get(subdomain.id).count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM metrics_daily WHERE subdomain_id = ?').get(subdomain.id).count, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM clients').get().count, clientCount);
+});
+
 test('admin can clear workspace data while preserving admin and Google connection', async (t) => {
   const app = await startTestApp();
   t.after(() => app.close());
