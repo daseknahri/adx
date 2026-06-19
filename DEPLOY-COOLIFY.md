@@ -43,6 +43,7 @@ AD_MANAGER_REPORT_ID=7704780540
 AD_MANAGER_REPORT_DIMENSIONS=SITE
 AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,TOTAL_IMPRESSIONS
 REPORT_CURRENCY=MAD
+ADX_BACKFILL_DAYS=90
 GA4_PROPERTY_ID=
 ENABLE_GOOGLE_SYNC=false
 CRON_SECRET=replace-with-a-long-random-secret
@@ -72,6 +73,13 @@ internally. A good starting schedule is every hour while the day is active, or
 once per day if you only need finalized historical numbers. The endpoint
 refreshes from the newest stored metric date through today, and the sync history
 in the admin dashboard will show the result.
+
+When you add a new tracked site after historical data already exists, click
+`Backfill Sites` once in the admin dashboard. That sync starts from the earliest
+stored metric date, fills the new site with the same historical window, and then
+the hourly/latest refresh flow continues from the newest stored date. If the
+database has no stored metric history yet, `ADX_BACKFILL_DAYS` controls how many
+days the first backfill requests.
 
 ## Google Ad Manager OAuth Setup
 

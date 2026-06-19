@@ -2,7 +2,7 @@ import express from 'express';
 import { hashPassword } from '../auth.js';
 import { audit, requireAdmin } from '../middleware.js';
 import { getGoogleStatus, startOAuth, handleOAuthCallback } from '../services/google-oauth.js';
-import { syncGoogleLatest, syncGoogleReports } from '../services/sync.js';
+import { syncGoogleBackfill, syncGoogleLatest, syncGoogleReports } from '../services/sync.js';
 
 export function adminRouter(db, config) {
   const router = express.Router();
@@ -379,6 +379,12 @@ export function adminRouter(db, config) {
   router.post('/sync/google/latest', async (req, res) => {
     const result = await syncGoogleLatest(db, config);
     audit(db, req, 'sync.google.latest', 'sync_run', result.syncRunId, result);
+    res.json(result);
+  });
+
+  router.post('/sync/google/backfill', async (req, res) => {
+    const result = await syncGoogleBackfill(db, config);
+    audit(db, req, 'sync.google.backfill', 'sync_run', result.syncRunId, result);
     res.json(result);
   });
 

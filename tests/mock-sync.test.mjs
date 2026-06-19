@@ -136,6 +136,45 @@ test('admin latest Google refresh starts at the newest stored sync date', async 
   assert.equal(latest.body.rowsSynced, domainCount * listDates(yesterday, today).length);
 });
 
+test('admin backfill fills newly tracked domains from earliest stored sync date', async (t) => {
+  const app = await startTestApp({ enableGoogleSync: false });
+  t.after(() => app.close());
+
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+  const firstSync = await request(app.baseUrl, '/api/admin/sync/google', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ from: '2026-06-15', to: '2026-06-16' })
+  });
+  assert.equal(firstSync.response.status, 200);
+  assert.equal(firstSync.body.ok, true);
+
+  const inserted = app.db.prepare(`
+    INSERT INTO subdomains (domain, category, unit_price, rent_status, notes)
+    VALUES ('fresh.example.com', 'Content', 0, 'active', '')
+  `).run();
+  const freshId = Number(inserted.lastInsertRowid);
+
+  const backfill = await request(app.baseUrl, '/api/admin/sync/google/backfill', {
+    method: 'POST',
+    headers: { cookie }
+  });
+  assert.equal(backfill.response.status, 200);
+  assert.equal(backfill.body.ok, true);
+  assert.equal(backfill.body.range.from, '2026-06-15');
+  assert.ok(backfill.body.range.to >= '2026-06-16');
+
+  const freshRows = app.db.prepare(`
+    SELECT metric_date AS metricDate, earnings, impressions
+    FROM metrics_daily
+    WHERE subdomain_id = ?
+      AND metric_date BETWEEN '2026-06-15' AND '2026-06-16'
+    ORDER BY metric_date ASC
+  `).all(freshId);
+  assert.deepEqual(freshRows.map((row) => row.metricDate), ['2026-06-15', '2026-06-16']);
+  assert.equal(freshRows.every((row) => row.earnings > 0 && row.impressions > 0), true);
+});
+
 function isoOffset(offset) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + offset);

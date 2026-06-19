@@ -201,19 +201,30 @@ function ClientDashboard() {
   const [compactColumns, setCompactColumns] = useState(false);
   const [data, setData] = useState({ totals: {}, rows: [] });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const [selected, setSelected] = useState(null);
   const [accessError, setAccessError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const result = await api('/api/client/dashboard');
       setData(result);
       setAccessError('');
+      setLastLoadedAt(new Date());
     } catch (error) {
       setAccessError(error.message || 'Unable to load dashboard');
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -222,8 +233,22 @@ function ClientDashboard() {
   }, [load]);
 
   useEffect(() => {
-    const refreshTimer = window.setInterval(load, 60_000);
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load({ silent: true });
+    }, 15_000);
     return () => window.clearInterval(refreshTimer);
+  }, [load]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') load({ silent: true });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
   }, [load]);
 
   if (accessError === 'client_paused') {
@@ -237,7 +262,13 @@ function ClientDashboard() {
   return (
     <section className="workspace">
       <PageTitle title="Salary Dashboard" subtitle="My Domains" />
-      <ClientControls onRefresh={load} onColumns={() => setCompactColumns((current) => !current)} />
+      <ClientControls
+        refreshing={refreshing}
+        syncSummary={data.syncSummary}
+        lastLoadedAt={lastLoadedAt}
+        onRefresh={() => load({ silent: true })}
+        onColumns={() => setCompactColumns((current) => !current)}
+      />
       <MetricStrip totals={data.totals} clientMode />
       <DomainTable
         rows={data.rows}
@@ -292,6 +323,10 @@ function AdminConsole() {
 
   async function refreshLatest() {
     await runSync('Refreshing latest AdX data...', '/api/admin/sync/google/latest');
+  }
+
+  async function backfillSites() {
+    await runSync('Backfilling tracked sites from stored history...', '/api/admin/sync/google/backfill');
   }
 
   async function runSync(startMessage, path, body) {
@@ -353,6 +388,10 @@ function AdminConsole() {
         refreshDisabled={syncing}
         onColumns={() => setCompactColumns((current) => !current)}
       >
+        <button className="ghost-button" type="button" onClick={backfillSites} disabled={syncing}>
+          <RefreshCcw size={16} />
+          Backfill Sites
+        </button>
         <button className="primary-button" type="button" onClick={syncRange} disabled={syncing}>
           <DatabaseZap size={16} />
           Sync Range
@@ -1183,17 +1222,24 @@ function Controls({ range, setRange, onRefresh, onColumns, refreshLabel = 'Refre
   );
 }
 
-function ClientControls({ onRefresh, onColumns }) {
+function ClientControls({ refreshing, syncSummary = {}, lastLoadedAt, onRefresh, onColumns }) {
+  const latestLabel = syncSummary.latestMetricDate
+    ? `Data through ${syncSummary.latestMetricDate}`
+    : 'Waiting for synced data';
+  const loadedLabel = lastLoadedAt ? `checked ${formatTime(lastLoadedAt)}` : 'checking now';
   return (
     <div className="controls">
       <button className="ghost-button" type="button" onClick={onRefresh}>
         <RefreshCcw size={15} />
-        Refresh
+        {refreshing ? 'Updating' : 'Refresh'}
       </button>
       <button className="ghost-button" type="button" onClick={onColumns}>
         Columns
         <ChevronDown size={15} />
       </button>
+      <span className="auto-sync-note">
+        Auto updates - {latestLabel} - {loadedLabel}
+      </span>
     </div>
   );
 }
@@ -1432,6 +1478,14 @@ function formatDateTime(value) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(new Date(`${String(value).replace(' ', 'T')}Z`));
+}
+
+function formatTime(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(value instanceof Date ? value : new Date(value));
 }
 
 createRoot(document.getElementById('root')).render(<App />);

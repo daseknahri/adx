@@ -314,6 +314,12 @@ main {
   flex: 1 1 auto;
 }
 
+.auto-sync-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .view-tabs {
   display: inline-flex;
   gap: 6px;

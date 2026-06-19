@@ -54,8 +54,9 @@ export function clientRouter(db) {
       return acc;
     }, { earnings: 0, grossEarnings: 0, ownerCut: 0, pageViews: 0, visitors: 0, activeUsers: 0, clicks: 0, impressions: 0 });
     applyAdTotals(totals, rows, 'grossEarnings');
+    const syncSummary = dataFreshness(db, req.user.clientId);
 
-    res.json({ totals, rows });
+    res.json({ totals, rows, syncSummary });
   });
 
   router.get('/subdomains/:id/daily', (req, res) => {
@@ -105,4 +106,20 @@ function applyAdTotals(totals, rows, revenueKey) {
   totals.adxEcpm = totals.impressions > 0
     ? (totals[revenueKey] / totals.impressions) * 1000
     : averageNonZero(rows.map((row) => row.adxEcpm));
+}
+
+function dataFreshness(db, clientId) {
+  const row = db.prepare(`
+    SELECT MAX(m.metric_date) AS latestMetricDate,
+      MAX(m.updated_at) AS latestUpdatedAt,
+      COUNT(m.id) AS metricRows
+    FROM client_subdomains cs
+    INNER JOIN metrics_daily m ON m.subdomain_id = cs.subdomain_id
+    WHERE cs.client_id = ?
+  `).get(clientId);
+  return {
+    latestMetricDate: row?.latestMetricDate || null,
+    latestUpdatedAt: row?.latestUpdatedAt || null,
+    metricRows: Number(row?.metricRows || 0)
+  };
 }

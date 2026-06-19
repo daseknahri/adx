@@ -6,15 +6,17 @@ their assigned Google Ad Manager / AdX numbers.
 ## What It Does
 
 - Admin dashboard for clients, subdomains, assignment, rent status, and sync actions.
-- Client dashboard for assigned subdomains only.
-- Each subdomain assignment has a client access date (defaulting to today), so
-  client metrics begin only from the agreed rental date.
+- Client dashboard for currently assigned subdomains only, using all stored
+  synced data for those sites.
+- Client dashboards auto-refresh in the browser, so new synced numbers appear
+  without the client pressing refresh.
 - Pausing a client immediately blocks new logins and API access while retaining
   the client, domains, and stored reporting data for later reactivation.
 - Google Ad Manager OAuth connection and AdX report sync.
 - AdX revenue, CTR, eCPM, and impressions from an existing interactive report.
 - Exact selected date/range sync by setting the saved Ad Manager report date range before each run.
-- Backfill old AdX dates with Sync Range, then use Refresh AdX to fetch only the latest stored date through today.
+- Backfill old AdX dates with Sync Range or Backfill Sites, then use Refresh AdX
+  and the cron task to fetch only the latest stored date through today.
 - Optional GA4 sync for visitor columns.
 - SQLite-backed storage mounted at `/data` for Coolify deployment.
 

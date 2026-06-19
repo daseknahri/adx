@@ -80,6 +80,13 @@ export async function syncGoogleLatest(db, config) {
   return syncGoogleReports(db, config, { from, to: today });
 }
 
+export async function syncGoogleBackfill(db, config) {
+  const today = todayIso();
+  const earliest = earliestSyncedDate(db);
+  const from = earliest || offsetIso(-Number(config.adxBackfillDays || 90));
+  return syncGoogleReports(db, config, { from, to: today });
+}
+
 function startRun(db, provider) {
   const result = db.prepare(`
     INSERT INTO sync_runs (provider, status)
@@ -108,6 +115,15 @@ function latestSyncedDate(db) {
     WHERE source IN ('admanager', 'adsense', 'ga4', 'mock')
   `).get();
   return row?.latestDate || null;
+}
+
+function earliestSyncedDate(db) {
+  const row = db.prepare(`
+    SELECT MIN(metric_date) AS earliestDate
+    FROM metrics_daily
+    WHERE source IN ('admanager', 'adsense', 'ga4', 'mock')
+  `).get();
+  return row?.earliestDate || null;
 }
 
 function writeMetrics(db, domains, range, revenueRows, ga4Rows, sourceMode) {
@@ -296,4 +312,10 @@ function listDates(from, to) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function offsetIso(offsetDays) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
 }
