@@ -8,12 +8,16 @@ export function getGoogleStatus(db, config) {
   const row = db.prepare('SELECT * FROM google_connections WHERE id = 1').get();
   const scopes = googleScopes(config);
   const connected = Boolean(row?.refresh_token);
+  const storedScopes = String(row?.scope || '');
+  const hasDateWriteScope = storedScopes.split(/\s+/).includes('https://www.googleapis.com/auth/admanager');
+  const needsReconnectForDateSync = connected && Boolean(config.adManagerNetworkCode && config.adManagerReportId) && !hasDateWriteScope;
   return {
     connected,
     connectedEmail: row?.connected_email || null,
     accountId: row?.account_id || config.adManagerNetworkCode || config.adsenseAccountId || null,
     syncEnabled: config.enableGoogleSync || connected,
     demoMode: !config.enableGoogleSync && !connected,
+    needsReconnectForDateSync,
     hasClientConfig: Boolean(config.googleClientId && config.googleClientSecret),
     provider: config.adManagerNetworkCode && config.adManagerReportId ? 'admanager' : 'adsense',
     reportId: config.adManagerReportId || null,
@@ -125,7 +129,7 @@ export async function getAccessToken(db, config) {
 function googleScopes(config) {
   const scopes = [];
   if (config.adManagerNetworkCode || config.adManagerReportId) {
-    scopes.push('https://www.googleapis.com/auth/admanager.readonly');
+    scopes.push('https://www.googleapis.com/auth/admanager');
   }
   if (config.adsenseAccountId) {
     scopes.push('https://www.googleapis.com/auth/adsense.readonly');
@@ -133,5 +137,5 @@ function googleScopes(config) {
   if (config.ga4PropertyId) {
     scopes.push('https://www.googleapis.com/auth/analytics.readonly');
   }
-  return scopes.length ? scopes : ['https://www.googleapis.com/auth/admanager.readonly'];
+  return scopes.length ? scopes : ['https://www.googleapis.com/auth/admanager'];
 }

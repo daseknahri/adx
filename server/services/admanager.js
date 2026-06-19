@@ -11,6 +11,49 @@ export async function fetchAdManagerReport({
 }) {
   if (!accessToken || !networkCode || !reportId) return [];
 
+  if (!hasDateDimension(dimensions) && from !== to) {
+    const rows = [];
+    for (const date of listDates(from, to)) {
+      rows.push(...await fetchReportForRange({
+        accessToken,
+        networkCode,
+        reportId,
+        from: date,
+        to: date,
+        metrics,
+        dimensions
+      }));
+    }
+    return rows;
+  }
+
+  return fetchReportForRange({
+    accessToken,
+    networkCode,
+    reportId,
+    from,
+    to,
+    metrics,
+    dimensions
+  });
+}
+
+async function fetchReportForRange({
+  accessToken,
+  networkCode,
+  reportId,
+  from,
+  to,
+  metrics,
+  dimensions
+}) {
+  await updateReportDateRange({
+    accessToken,
+    networkCode,
+    reportId,
+    from,
+    to
+  });
   const operation = await runReport({ accessToken, networkCode, reportId });
   const reportResult = await waitForReportResult({ accessToken, operation });
   const payload = await fetchAllRows({ accessToken, reportResult });
@@ -20,6 +63,41 @@ export async function fetchAdManagerReport({
     metrics,
     dimensions
   });
+}
+
+async function updateReportDateRange({ accessToken, networkCode, reportId, from, to }) {
+  const report = await getReport({ accessToken, networkCode, reportId });
+  const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports/${reportId}?updateMask=reportDefinition.dateRange`, {
+    method: 'PATCH',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: report.name || `networks/${networkCode}/reports/${reportId}`,
+      reportDefinition: {
+        ...(report.reportDefinition || {}),
+        dateRange: fixedDateRange(from, to)
+      }
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Reconnect Google Ad Manager. Exact date sync requires the admanager OAuth scope.');
+    }
+    throw new Error(`Ad Manager report date update failed: ${response.status} ${detail}`);
+  }
+}
+
+async function getReport({ accessToken, networkCode, reportId }) {
+  const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports/${reportId}`, {
+    headers: { authorization: `Bearer ${accessToken}` }
+  });
+  if (!response.ok) {
+    throw new Error(`Ad Manager report lookup failed: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
 }
 
 async function runReport({ accessToken, networkCode, reportId }) {
@@ -35,6 +113,23 @@ async function runReport({ accessToken, networkCode, reportId }) {
     throw new Error(`Ad Manager report run failed: ${response.status} ${await response.text()}`);
   }
   return response.json();
+}
+
+function fixedDateRange(from, to) {
+  return {
+    fixed: {
+      startDate: googleDate(from),
+      endDate: googleDate(to)
+    }
+  };
+}
+
+function googleDate(value) {
+  return {
+    year: Number(value.slice(0, 4)),
+    month: Number(value.slice(5, 7)),
+    day: Number(value.slice(8, 10))
+  };
 }
 
 async function waitForReportResult({ accessToken, operation }) {
@@ -225,4 +320,19 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function hasDateDimension(dimensions = []) {
+  return dimensions.some((dimension) => normalizeName(dimension) === 'DATE');
+}
+
+function listDates(from, to) {
+  const dates = [];
+  const cursor = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates.length ? dates : [to];
 }

@@ -87,6 +87,7 @@ test('connected Google OAuth uses Ad Manager even when demo env flag is false', 
   const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
 
   const originalFetch = globalThis.fetch;
+  const patchedRanges = [];
   t.after(() => {
     globalThis.fetch = originalFetch;
   });
@@ -98,6 +99,22 @@ test('connected Google OAuth uses Ad Manager even when demo env flag is false', 
     }
     if (target.includes('oauth2.googleapis.com')) {
       return Response.json({ access_token: 'access-token', expires_in: 3600 });
+    }
+    if (target.endsWith('/networks/23350042371/reports/7704780540')) {
+      return Response.json({
+        name: 'networks/23350042371/reports/7704780540',
+        reportDefinition: {
+          dimensions: ['SITE'],
+          metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
+          dateRange: { relative: 'TODAY' }
+        }
+      });
+    }
+    if (target.includes('/networks/23350042371/reports/7704780540?updateMask=reportDefinition.dateRange')) {
+      assert.equal(options.method, 'PATCH');
+      const body = JSON.parse(options.body);
+      patchedRanges.push(body.reportDefinition.dateRange);
+      return Response.json(body);
     }
     if (target.endsWith('/networks/23350042371/reports/7704780540:run')) {
       return Response.json({ name: 'networks/23350042371/operations/reports/runs/op-1' });
@@ -141,6 +158,14 @@ test('connected Google OAuth uses Ad Manager even when demo env flag is false', 
   assert.equal(sync.response.status, 200);
   assert.equal(sync.body.ok, true);
   assert.equal(sync.body.mode, 'admanager');
+  assert.deepEqual(patchedRanges, [
+    {
+      fixed: {
+        startDate: { year: 2026, month: 6, day: 19 },
+        endDate: { year: 2026, month: 6, day: 19 }
+      }
+    }
+  ]);
 
   const row = app.db.prepare(`
     SELECT earnings, impressions, page_views AS pageViews, adx_ctr AS adxCtr,

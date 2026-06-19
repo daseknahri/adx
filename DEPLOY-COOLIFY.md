@@ -61,8 +61,9 @@ value for `TOKEN_ENCRYPTION_KEY`.
 ## Google Ad Manager OAuth Setup
 
 For AdX, use Google Ad Manager, not the AdSense API. The app asks for the
-`https://www.googleapis.com/auth/admanager.readonly` scope when the Ad Manager
-network/report variables are set.
+`https://www.googleapis.com/auth/admanager` scope when the Ad Manager
+network/report variables are set. This lets the app set the saved report's exact
+date range before each sync.
 
 In Google Cloud Console:
 
@@ -87,7 +88,9 @@ In Google Ad Manager:
 4. Open the report you want to sync and copy `report_id` from the URL.
    In your screenshot this is `7704780540`.
 5. Keep the report grouped by `Site` and include Total revenue, Ad Exchange CTR,
-   and Ad Exchange average eCPM.
+   Ad Exchange average eCPM, and Total impressions. If you add the `Date`
+   dimension, the app can fetch multi-day ranges in one report run; otherwise it
+   safely runs one exact report per day.
 
 ## GitHub Auto-Deploy Notes
 

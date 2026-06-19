@@ -336,16 +336,18 @@ function AdminConsole() {
 
 function AdminStatus({ google, message, latestSync }) {
   const latest = latestSync?.[0];
+  const connectionLabel = google.needsReconnectForDateSync ? 'Reconnect for dates' : (google.connected ? 'Connected' : 'Not connected');
+  const actionLabel = google.connected || google.needsReconnectForDateSync ? 'Reconnect' : 'Connect';
   return (
     <div className="status-rail">
       <div>
         <ShieldCheck size={18} />
         <span>Ad Manager</span>
-        <strong>{google.connected ? 'Connected' : 'Not connected'}</strong>
+        <strong>{connectionLabel}</strong>
         {google.hasClientConfig ? (
           <a className="inline-action" href="/api/admin/google/oauth/start">
             <PlugZap size={13} />
-            {google.connected ? 'Reconnect' : 'Connect'}
+            {actionLabel}
           </a>
         ) : (
           <span className="inline-action disabled">
@@ -622,28 +624,38 @@ function PageTitle({ title, subtitle }) {
 
 function Controls({ range, setRange, onRefresh, onColumns, children }) {
   function updateFrom(from) {
-    setRange({
+    setRange((current) => ({
       from,
-      to: from > range.to ? from : range.to,
+      to: from > current.to ? from : current.to,
       preset: 'Custom'
-    });
+    }));
   }
 
   function updateTo(to) {
-    setRange({
-      from: to < range.from ? to : range.from,
+    setRange((current) => ({
+      from: to < current.from ? to : current.from,
       to,
       preset: 'Custom'
-    });
+    }));
   }
 
   return (
     <div className="controls">
       <div className="date-input">
         <CalendarDays size={16} />
-        <input type="date" value={range.from} onChange={(event) => updateFrom(event.target.value)} />
+        <input
+          type="date"
+          value={range.from}
+          onInput={(event) => updateFrom(event.currentTarget.value)}
+          onChange={(event) => updateFrom(event.currentTarget.value)}
+        />
         <span>-</span>
-        <input type="date" value={range.to} onChange={(event) => updateTo(event.target.value)} />
+        <input
+          type="date"
+          value={range.to}
+          onInput={(event) => updateTo(event.currentTarget.value)}
+          onChange={(event) => updateTo(event.currentTarget.value)}
+        />
       </div>
       <div className="preset-row">
         {Object.keys(datePresets).map((label) => (

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeAdManagerRows } from '../server/services/admanager.js';
+import { fetchAdManagerReport, normalizeAdManagerRows } from '../server/services/admanager.js';
 
 test('normalizes Ad Manager report rows with configured Site metrics', () => {
   const rows = normalizeAdManagerRows({
@@ -97,4 +97,79 @@ test('normalizes Ad Manager total impressions by metric position', () => {
   assert.equal(rows[0].adxEcpm, 25.42);
   assert.equal(rows[0].impressions, 951);
   assert.equal(rows[0].pageViews, 951);
+});
+
+test('fetches site-only Ad Manager reports once per day for range accuracy', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const patchedDates = [];
+  let currentDate = '';
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (target.endsWith('/networks/23350042371/reports/7704780540')) {
+      return Response.json({
+        name: 'networks/23350042371/reports/7704780540',
+        reportDefinition: {
+          dimensions: ['SITE'],
+          metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
+          dateRange: { relative: 'TODAY' }
+        }
+      });
+    }
+    if (target.includes('/networks/23350042371/reports/7704780540?updateMask=reportDefinition.dateRange')) {
+      assert.equal(options.method, 'PATCH');
+      const body = JSON.parse(options.body);
+      const startDate = body.reportDefinition.dateRange.fixed.startDate;
+      currentDate = `${startDate.year}-${String(startDate.month).padStart(2, '0')}-${String(startDate.day).padStart(2, '0')}`;
+      patchedDates.push(currentDate);
+      return Response.json(body);
+    }
+    if (target.endsWith('/networks/23350042371/reports/7704780540:run')) {
+      return Response.json({ name: `networks/23350042371/operations/reports/runs/${currentDate}` });
+    }
+    if (target.includes('/operations/reports/runs/')) {
+      return Response.json({
+        done: true,
+        response: {
+          reportResult: `networks/23350042371/reports/7704780540/results/${currentDate}`
+        }
+      });
+    }
+    if (target.includes('/results/2026-06-18:fetchRows')) {
+      return Response.json({
+        rows: [{
+          dimensionValues: [{ value: 'allrecipes.panrecipe.com' }],
+          metricValueGroups: [{ values: [{ value: 'MAD10.00' }, { value: '2.00%' }, { value: 'MAD20.00' }, { value: '500' }] }]
+        }]
+      });
+    }
+    if (target.includes('/results/2026-06-19:fetchRows')) {
+      return Response.json({
+        rows: [{
+          dimensionValues: [{ value: 'allrecipes.panrecipe.com' }],
+          metricValueGroups: [{ values: [{ value: 'MAD24.18' }, { value: '2.63%' }, { value: 'MAD25.42' }, { value: '951' }] }]
+        }]
+      });
+    }
+    throw new Error(`Unexpected fetch ${target}`);
+  };
+
+  const rows = await fetchAdManagerReport({
+    accessToken: 'access-token',
+    networkCode: '23350042371',
+    reportId: '7704780540',
+    from: '2026-06-18',
+    to: '2026-06-19',
+    dimensions: ['SITE'],
+    metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS']
+  });
+
+  assert.deepEqual(patchedDates, ['2026-06-18', '2026-06-19']);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.date), ['2026-06-18', '2026-06-19']);
+  assert.deepEqual(rows.map((row) => row.earnings), [10, 24.18]);
+  assert.deepEqual(rows.map((row) => row.impressions), [500, 951]);
 });

@@ -11,8 +11,8 @@ The app is independent from `D:\za-post-main` and deploys as its own Coolify ser
 
 ## Data Sources
 
-AdSense can provide monetization metrics such as estimated earnings, page views,
-clicks, impressions, ad requests, RPM, and CTR.
+Google Ad Manager / AdX provides monetization metrics such as revenue, CTR,
+average eCPM, impressions, clicks, and optional page views.
 
 GA4 is optional and provides traffic/engagement metrics such as active users,
 screen/page views, bounce rate, and engaged sessions.
@@ -29,7 +29,7 @@ manual/domain management to remain usable.
 - Assign subdomains to clients.
 - Set status, category, unit price, and notes.
 - Connect Google OAuth.
-- Run manual sync.
+- Run manual sync for exact selected dates/ranges from the saved Ad Manager report.
 - View all metrics and sync errors.
 
 ### Client
@@ -45,12 +45,12 @@ manual/domain management to remain usable.
 | --- | --- |
 | Domain | Local DB |
 | Visitors | GA4 `activeUsers` |
-| Page Views | AdSense `PAGE_VIEWS` or GA4 `screenPageViews` fallback |
+| Page Views | Ad Manager page views, AdX impressions fallback, or GA4 `screenPageViews` |
 | Bounce Rate | GA4 `bounceRate` |
 | Engaged Sessions | GA4 `engagedSessions` |
 | Category | Local DB |
 | Unit Price | Local DB |
-| Earnings | AdSense `ESTIMATED_EARNINGS` |
+| Earnings | Ad Manager / AdX `REVENUE` |
 | Active Users | GA4 `activeUsers` |
 | Actions | Local UI/API |
 
@@ -93,4 +93,3 @@ All endpoints return JSON unless serving the React app.
 - Start command: `npm start`.
 - Exposed port: `$PORT` default `8080`.
 - Persistent mount: `/data`.
-
