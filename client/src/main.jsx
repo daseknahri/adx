@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity,
@@ -210,24 +210,32 @@ function ClientDashboard() {
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const [selected, setSelected] = useState(null);
   const [accessError, setAccessError] = useState('');
+  const requestId = useRef(0);
+  const hasLoaded = useRef(false);
 
   const load = useCallback(async ({ silent = false } = {}) => {
-    if (silent) {
+    const currentRequest = requestId.current + 1;
+    requestId.current = currentRequest;
+    const blockingLoad = !silent && !hasLoaded.current;
+    if (!blockingLoad) {
       setRefreshing(true);
     } else {
       setLoading(true);
     }
     try {
       const result = await api(pathWithRange('/api/client/dashboard', range));
+      if (requestId.current !== currentRequest) return;
       setData(result);
       setAccessError('');
       setLastLoadedAt(new Date());
+      hasLoaded.current = true;
     } catch (error) {
+      if (requestId.current !== currentRequest) return;
       setAccessError(error.message || 'Unable to load dashboard');
     } finally {
-      if (silent) {
-        setRefreshing(false);
-      } else {
+      if (requestId.current !== currentRequest) return;
+      setRefreshing(false);
+      if (blockingLoad) {
         setLoading(false);
       }
     }
@@ -308,18 +316,28 @@ function AdminConsole() {
   const [selectedDomain, setSelectedDomain] = useState(null);
   const [editDomain, setEditDomain] = useState(null);
   const [deleteDomain, setDeleteDomain] = useState(null);
+  const requestId = useRef(0);
+  const hasLoaded = useRef(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [overviewResult, clientResult, googleResult] = await Promise.all([
-      api(pathWithRange('/api/admin/overview', range)),
-      api('/api/admin/clients'),
-      api('/api/admin/google/status')
-    ]);
-    setOverview(overviewResult);
-    setClients(clientResult.clients);
-    setGoogle(googleResult);
-    setLoading(false);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    const currentRequest = requestId.current + 1;
+    requestId.current = currentRequest;
+    const blockingLoad = !silent && !hasLoaded.current;
+    if (blockingLoad) setLoading(true);
+    try {
+      const [overviewResult, clientResult, googleResult] = await Promise.all([
+        api(pathWithRange('/api/admin/overview', range)),
+        api('/api/admin/clients'),
+        api('/api/admin/google/status')
+      ]);
+      if (requestId.current !== currentRequest) return;
+      setOverview(overviewResult);
+      setClients(clientResult.clients);
+      setGoogle(googleResult);
+      hasLoaded.current = true;
+    } finally {
+      if (requestId.current === currentRequest && blockingLoad) setLoading(false);
+    }
   }, [range]);
 
   useEffect(() => {
@@ -1193,14 +1211,12 @@ function Controls({ range, effectiveRange, setRange, onRefresh, onColumns, refre
         <input
           type="date"
           value={range.from}
-          onInput={(event) => updateFrom(event.currentTarget.value)}
           onChange={(event) => updateFrom(event.currentTarget.value)}
         />
         <span>-</span>
         <input
           type="date"
           value={range.to}
-          onInput={(event) => updateTo(event.currentTarget.value)}
           onChange={(event) => updateTo(event.currentTarget.value)}
         />
       </div>
@@ -1357,8 +1373,14 @@ function DetailDrawer({ row, range, dailyPath, onClose }) {
   const [daily, setDaily] = useState([]);
 
   useEffect(() => {
+    let cancelled = false;
     const path = dailyPath || `/api/client/subdomains/${row.id}/daily`;
-    api(pathWithRange(path, range)).then((result) => setDaily(result.rows));
+    api(pathWithRange(path, range)).then((result) => {
+      if (!cancelled) setDaily(result.rows);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [row.id, range, dailyPath]);
 
   return (

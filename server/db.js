@@ -69,6 +69,9 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_assignment_history_subdomain
       ON subdomain_assignment_history (subdomain_id, ended_at, id DESC);
 
+    CREATE INDEX IF NOT EXISTS idx_client_subdomains_subdomain
+      ON client_subdomains (subdomain_id, client_id);
+
     CREATE TABLE IF NOT EXISTS metrics_daily (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subdomain_id INTEGER NOT NULL REFERENCES subdomains(id) ON DELETE CASCADE,
@@ -88,6 +91,9 @@ function migrate(db) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (subdomain_id, metric_date)
     );
+
+    CREATE INDEX IF NOT EXISTS idx_metrics_daily_date_subdomain
+      ON metrics_daily (metric_date, subdomain_id);
 
     CREATE TABLE IF NOT EXISTS google_connections (
       id INTEGER PRIMARY KEY CHECK (id = 1),
