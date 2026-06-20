@@ -371,7 +371,7 @@ export function adminRouter(db, config) {
 
   router.post('/sync/google', async (req, res) => {
     const range = parseRange(db, req.body || {});
-    const result = await syncGoogleReports(db, config, range);
+    const result = await syncGoogleReports(db, config, range, { preferDateDimension: true });
     audit(db, req, 'sync.google', 'sync_run', result.syncRunId, result);
     res.json(result);
   });

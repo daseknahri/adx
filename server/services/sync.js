@@ -3,7 +3,7 @@ import { fetchAdManagerReport } from './admanager.js';
 import { fetchAdsenseDomainReport } from './adsense.js';
 import { fetchGa4DomainReport } from './ga4.js';
 
-export async function syncGoogleReports(db, config, range) {
+export async function syncGoogleReports(db, config, range, options = {}) {
   const syncRunId = startRun(db, 'google');
   try {
     const domains = db.prepare('SELECT id, domain FROM subdomains').all();
@@ -23,7 +23,8 @@ export async function syncGoogleReports(db, config, range) {
           from: range.from,
           to: range.to,
           metrics: config.adManagerReportMetrics,
-          dimensions: config.adManagerReportDimensions
+          dimensions: config.adManagerReportDimensions,
+          preferDateDimension: Boolean(options.preferDateDimension)
         });
         sourceMode = 'admanager';
       } else {
@@ -77,14 +78,14 @@ export async function syncGoogleLatest(db, config) {
   const today = todayIso();
   const latest = latestSyncedDate(db);
   const from = latest && latest <= today ? latest : today;
-  return syncGoogleReports(db, config, { from, to: today });
+  return syncGoogleReports(db, config, { from, to: today }, { preferDateDimension: true });
 }
 
 export async function syncGoogleBackfill(db, config) {
   const today = todayIso();
   const earliest = earliestSyncedDate(db);
   const from = earliest || offsetIso(-Number(config.adxBackfillDays || 90));
-  return syncGoogleReports(db, config, { from, to: today });
+  return syncGoogleReports(db, config, { from, to: today }, { preferDateDimension: true });
 }
 
 function startRun(db, provider) {

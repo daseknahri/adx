@@ -66,10 +66,15 @@ From the provided Ad Manager screenshot, the likely production values are:
 ```env
 AD_MANAGER_NETWORK_CODE=23350042371
 AD_MANAGER_REPORT_ID=7704780540
-AD_MANAGER_REPORT_DIMENSIONS=SITE
+AD_MANAGER_REPORT_DIMENSIONS=DATE,SITE
 AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,TOTAL_IMPRESSIONS
 REPORT_CURRENCY=MAD
 ```
+
+Use `DATE,SITE` for `AD_MANAGER_REPORT_DIMENSIONS` when possible. That lets
+backfill fetch a full date range in one Ad Manager run instead of one run per
+day. If Google rejects the date dimension, the app falls back to the slower
+day-by-day sync automatically.
 
 Enable GitHub auto-deploys in Coolify only after the first manual deployment
 passes the `/health` check.

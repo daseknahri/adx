@@ -40,7 +40,7 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=https://reports.example.com/api/admin/google/oauth/callback
 AD_MANAGER_NETWORK_CODE=23350042371
 AD_MANAGER_REPORT_ID=7704780540
-AD_MANAGER_REPORT_DIMENSIONS=SITE
+AD_MANAGER_REPORT_DIMENSIONS=DATE,SITE
 AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,TOTAL_IMPRESSIONS
 REPORT_CURRENCY=MAD
 ADX_BACKFILL_DAYS=90
@@ -80,6 +80,11 @@ stored metric date, fills the new site with the same historical window, and then
 the hourly/latest refresh flow continues from the newest stored date. If the
 database has no stored metric history yet, `ADX_BACKFILL_DAYS` controls how many
 days the first backfill requests.
+
+For faster backfills, keep `AD_MANAGER_REPORT_DIMENSIONS=DATE,SITE`. The app
+will try to fetch the whole range in one Ad Manager report run. If that report
+shape is rejected by Google, it automatically falls back to the slower
+day-by-day method.
 
 ## Google Ad Manager OAuth Setup
 
