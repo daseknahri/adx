@@ -314,12 +314,6 @@ main {
   flex: 1 1 auto;
 }
 
-.auto-sync-note {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .range-chip {
   min-height: 28px;
   display: inline-flex;
@@ -331,6 +325,12 @@ main {
   background: #090b10;
   font-size: 12px;
   font-weight: 800;
+}
+
+.admin-info-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin: 12px 0 4px;
 }
 
 .view-tabs {

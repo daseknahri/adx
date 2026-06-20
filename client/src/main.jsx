@@ -207,7 +207,6 @@ function ClientDashboard() {
   const [data, setData] = useState({ totals: {}, rows: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastLoadedAt, setLastLoadedAt] = useState(null);
   const [selected, setSelected] = useState(null);
   const [accessError, setAccessError] = useState('');
   const requestId = useRef(0);
@@ -227,7 +226,6 @@ function ClientDashboard() {
       if (requestId.current !== currentRequest) return;
       setData(result);
       setAccessError('');
-      setLastLoadedAt(new Date());
       hasLoaded.current = true;
     } catch (error) {
       if (requestId.current !== currentRequest) return;
@@ -243,25 +241,6 @@ function ClientDashboard() {
 
   useEffect(() => {
     load();
-  }, [load]);
-
-  useEffect(() => {
-    const refreshTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') load({ silent: true });
-    }, 15_000);
-    return () => window.clearInterval(refreshTimer);
-  }, [load]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') load({ silent: true });
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleVisibility);
-    };
   }, [load]);
 
   if (accessError === 'client_paused') {
@@ -283,9 +262,7 @@ function ClientDashboard() {
         refreshLabel={refreshing ? 'Updating' : 'Refresh'}
         refreshDisabled={refreshing}
         onColumns={() => setCompactColumns((current) => !current)}
-      >
-        <ClientFreshness syncSummary={data.syncSummary} lastLoadedAt={lastLoadedAt} />
-      </Controls>
+      />
       <MetricStrip totals={data.totals} clientMode />
       <DomainTable
         rows={data.rows}
@@ -313,6 +290,7 @@ function AdminConsole() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
+  const [showAdminInfo, setShowAdminInfo] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState(null);
   const [editDomain, setEditDomain] = useState(null);
   const [deleteDomain, setDeleteDomain] = useState(null);
@@ -425,8 +403,18 @@ function AdminConsole() {
           Sync Range
         </button>
       </Controls>
-      <AdminStatus google={google} message={message} latestSync={overview.latestSync} syncSummary={overview.syncSummary} />
-      <SyncHistory runs={overview.latestSync} />
+      <div className="admin-info-toggle">
+        <button className="ghost-button" type="button" onClick={() => setShowAdminInfo((current) => !current)}>
+          <Activity size={15} />
+          {showAdminInfo ? 'Hide Sync Info' : 'Show Sync Info'}
+        </button>
+      </div>
+      {showAdminInfo ? (
+        <>
+          <AdminStatus google={google} message={message} latestSync={overview.latestSync} syncSummary={overview.syncSummary} />
+          <SyncHistory runs={overview.latestSync} />
+        </>
+      ) : null}
       <MetricStrip totals={overview.totals} />
       <div className="view-tabs" role="tablist" aria-label="Admin sections">
         <button className={view === 'domains' ? 'tab active' : 'tab'} type="button" onClick={() => setView('domains')}>
@@ -1247,18 +1235,6 @@ function Controls({ range, effectiveRange, setRange, onRefresh, onColumns, refre
   );
 }
 
-function ClientFreshness({ syncSummary = {}, lastLoadedAt }) {
-  const latestLabel = syncSummary.latestMetricDate
-    ? `Data through ${syncSummary.latestMetricDate}`
-    : 'Waiting for synced data';
-  const loadedLabel = lastLoadedAt ? `checked ${formatTime(lastLoadedAt)}` : 'checking now';
-  return (
-    <span className="auto-sync-note">
-      Auto updates - {latestLabel} - {loadedLabel}
-    </span>
-  );
-}
-
 function MetricStrip({ totals = {}, clientMode = false }) {
   const stats = [
     { label: clientMode ? 'Your Earnings' : 'Gross Revenue', value: money(totals.earnings), icon: CircleDollarSign },
@@ -1513,14 +1489,6 @@ function formatDateTime(value) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(new Date(`${String(value).replace(' ', 'T')}Z`));
-}
-
-function formatTime(value) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).format(value instanceof Date ? value : new Date(value));
 }
 
 createRoot(document.getElementById('root')).render(<App />);
