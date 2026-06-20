@@ -458,6 +458,7 @@ test('admin can update and reassign a subdomain', async (t) => {
     body: JSON.stringify({ clientId: nextClientId })
   });
   assert.equal(assigned.response.status, 200);
+  assert.equal(assigned.body.assignment.ownerCutPercent, 0);
 
   const overview = await request(app.baseUrl, '/api/admin/overview', {
     headers: { cookie }
@@ -469,6 +470,7 @@ test('admin can update and reassign a subdomain', async (t) => {
   assert.equal(row.unitPrice, 44.5);
   assert.equal(row.rentStatus, 'paused');
   assert.equal(row.notes, 'Updated by test');
+  assert.equal(row.ownerCutPercent, 0);
 });
 
 test('admin can delete a client account without deleting subdomains', async (t) => {

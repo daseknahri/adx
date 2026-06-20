@@ -576,7 +576,7 @@ function AdminForms({ clients, onChanged }) {
     rentStatus: 'active',
     notes: '',
     clientId: '',
-    ownerCutPercent: '20'
+    ownerCutPercent: '0'
   });
 
   async function createClient(event) {
@@ -611,7 +611,7 @@ function AdminForms({ clients, onChanged }) {
       rentStatus: 'active',
       notes: '',
       clientId: '',
-      ownerCutPercent: '20'
+      ownerCutPercent: '0'
     });
     onChanged();
   }
@@ -710,14 +710,14 @@ function AdminForms({ clients, onChanged }) {
           <label>
             Client
             <select value={subdomain.clientId} onChange={setField(setSubdomain, 'clientId')}>
-              <option value="">Unassigned</option>
+              <option value="">Admin</option>
               {clients.map((item) => (
                 <option value={item.id} key={item.id}>{item.name}</option>
               ))}
             </select>
           </label>
           <label>
-            Your cut (%)
+            Admin cut (%)
             <input
               type="number"
               min="0"
@@ -924,7 +924,7 @@ function EditClientDialog({ row, onCancel, onSave }) {
 function ClientDomainsDialog({ client, onCancel, onChanged }) {
   const [data, setData] = useState({ assigned: [], available: [] });
   const [selectedDomainId, setSelectedDomainId] = useState('');
-  const [ownerCutPercent, setOwnerCutPercent] = useState('20');
+  const [ownerCutPercent, setOwnerCutPercent] = useState('0');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -948,7 +948,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
         body: JSON.stringify({ clientId: client.id, ownerCutPercent })
       });
       setSelectedDomainId('');
-      setOwnerCutPercent('20');
+      setOwnerCutPercent('0');
       await Promise.all([load(), onChanged()]);
     } catch (assignmentError) {
       setError(assignmentError.message || 'Unable to assign subdomain');
@@ -987,14 +987,14 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
           <label>
             Available subdomain
             <select value={selectedDomainId} onChange={(event) => setSelectedDomainId(event.target.value)} disabled={busy || !data.available.length}>
-              <option value="">{data.available.length ? 'Choose a subdomain' : 'No unassigned subdomains'}</option>
+              <option value="">{data.available.length ? 'Choose a subdomain' : 'No admin-owned subdomains'}</option>
               {data.available.map((domain) => (
                 <option value={domain.id} key={domain.id}>{domain.domain}</option>
               ))}
             </select>
           </label>
           <label>
-            Your cut (%)
+            Admin cut (%)
             <input
               type="number"
               min="0"
@@ -1015,7 +1015,7 @@ function ClientDomainsDialog({ client, onCancel, onChanged }) {
             <div className="assignment-row" key={domain.id}>
               <div>
                 <strong>{domain.domain}</strong>
-                <span>Your cut {number(domain.ownerCutPercent)}%</span>
+                <span>Admin cut {number(domain.ownerCutPercent)}%</span>
               </div>
               <button className="row-action danger" type="button" title="Remove from client" onClick={() => removeDomain(domain)} disabled={busy}>
                 <Trash2 size={15} />
@@ -1071,7 +1071,7 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
     rentStatus: row.rentStatus || 'active',
     notes: row.notes || '',
     clientId: row.clientId ? String(row.clientId) : '',
-    ownerCutPercent: String(row.ownerCutPercent ?? 20)
+    ownerCutPercent: String(row.ownerCutPercent ?? 0)
   }));
 
   useEffect(() => {
@@ -1121,14 +1121,14 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
           <label>
             Client
             <select value={values.clientId} onChange={setField(setValues, 'clientId')}>
-              <option value="">Unassigned</option>
+              <option value="">Admin</option>
               {clients.map((client) => (
                 <option value={client.id} key={client.id}>{client.name}</option>
               ))}
             </select>
           </label>
           <label>
-            Your cut (%)
+            Admin cut (%)
             <input
               type="number"
               min="0"
@@ -1149,7 +1149,7 @@ function EditDomainDialog({ row, clients, onCancel, onSave }) {
             {assignmentHistory.map((assignment) => (
               <div key={assignment.id}>
                 <strong>{assignment.clientName}</strong>
-                <span>{assignment.endedAt ? 'Previous' : 'Current'} - cut {number(assignment.ownerCutPercent)}%</span>
+                <span>{assignment.endedAt ? 'Previous' : 'Current'} - admin cut {number(assignment.ownerCutPercent)}%</span>
               </div>
             ))}
           </div>
@@ -1274,7 +1274,7 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
             {clientMode && !compact ? <th>Client Share</th> : null}
             <th>{clientMode ? 'Your Earnings' : 'Gross Revenue'}</th>
             {!clientMode ? <th>Client Net</th> : null}
-            {!clientMode ? <th>Your Cut</th> : null}
+            {!clientMode ? <th>Admin Cut</th> : null}
             {!compact ? <th>Source</th> : null}
             <th>Actions</th>
           </tr>
@@ -1291,7 +1291,7 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
                   <em>{row.rentStatus}</em>
                 </div>
               </td>
-              {!clientMode ? <td>{row.clientName || 'Unassigned'}</td> : null}
+              {!clientMode ? <td>{row.clientName || 'Admin'}</td> : null}
               <td>{number(row.pageViews)}</td>
               {!compact ? <td>{number(row.impressions)}</td> : null}
               {!compact ? <td>{number(row.clicks)}</td> : null}
