@@ -12,7 +12,7 @@ export async function fetchAdManagerReport({
 }) {
   if (!accessToken || !networkCode || !reportId) return [];
 
-  if (preferDateDimension && !hasDateDimension(dimensions) && from !== to) {
+  if ((preferDateDimension || hasDateDimension(dimensions)) && from !== to) {
     try {
       return await fetchReportForRange({
         accessToken,
@@ -26,36 +26,81 @@ export async function fetchAdManagerReport({
       });
     } catch (error) {
       console.warn(`Fast Ad Manager date backfill failed, falling back to daily runs: ${error.message}`);
+      return fetchDailySiteReports({
+        accessToken,
+        networkCode,
+        reportId,
+        from,
+        to,
+        metrics,
+        dimensions: withoutDateDimension(dimensions)
+      });
     }
   }
 
   if (!hasDateDimension(dimensions) && from !== to) {
-    const rows = [];
-    for (const date of listDates(from, to)) {
-      rows.push(...await fetchReportForRange({
-        accessToken,
-        networkCode,
-        reportId,
-        from: date,
-        to: date,
-        metrics,
-        dimensions,
-        patchColumns: false
-      }));
-    }
-    return rows;
+    return fetchDailySiteReports({
+      accessToken,
+      networkCode,
+      reportId,
+      from,
+      to,
+      metrics,
+      dimensions
+    });
   }
 
-  return fetchReportForRange({
-    accessToken,
-    networkCode,
-    reportId,
-    from,
-    to,
-    metrics,
-    dimensions,
-    patchColumns: hasDateDimension(dimensions)
-  });
+  try {
+    return await fetchReportForRange({
+      accessToken,
+      networkCode,
+      reportId,
+      from,
+      to,
+      metrics,
+      dimensions,
+      patchColumns: hasDateDimension(dimensions)
+    });
+  } catch (error) {
+    if (!hasDateDimension(dimensions)) throw error;
+    console.warn(`Date-dimension Ad Manager sync failed, falling back to site-only run: ${error.message}`);
+    return fetchReportForRange({
+      accessToken,
+      networkCode,
+      reportId,
+      from,
+      to,
+      metrics,
+      dimensions: withoutDateDimension(dimensions),
+      patchColumns: false
+    });
+  }
+}
+
+async function fetchDailySiteReports({
+  accessToken,
+  networkCode,
+  reportId,
+  from,
+  to,
+  metrics,
+  dimensions
+}) {
+  const rows = [];
+  const siteDimensions = withoutDateDimension(dimensions);
+  for (const date of listDates(from, to)) {
+    rows.push(...await fetchReportForRange({
+      accessToken,
+      networkCode,
+      reportId,
+      from: date,
+      to: date,
+      metrics,
+      dimensions: siteDimensions,
+      patchColumns: false
+    }));
+  }
+  return rows;
 }
 
 async function fetchReportForRange({
@@ -101,15 +146,21 @@ async function updateReportDefinition({
 }) {
   const report = await getReport({ accessToken, networkCode, reportId });
   const updateMask = ['reportDefinition.dateRange'];
-  if (patchColumns && dimensions?.length) updateMask.push('reportDefinition.dimensions');
-  if (patchColumns && metrics?.length) updateMask.push('reportDefinition.metrics');
+  const shouldPatchDimensions = patchColumns
+    && dimensions?.length
+    && !sameNormalizedList(report.reportDefinition?.dimensions, dimensions);
+  const shouldPatchMetrics = patchColumns
+    && metrics?.length
+    && !sameNormalizedList(report.reportDefinition?.metrics, metrics);
+  if (shouldPatchDimensions) updateMask.push('reportDefinition.dimensions');
+  if (shouldPatchMetrics) updateMask.push('reportDefinition.metrics');
 
   const reportDefinition = {
     ...(report.reportDefinition || {}),
     dateRange: fixedDateRange(from, to)
   };
-  if (patchColumns && dimensions?.length) reportDefinition.dimensions = dimensions;
-  if (patchColumns && metrics?.length) reportDefinition.metrics = metrics;
+  if (shouldPatchDimensions) reportDefinition.dimensions = dimensions;
+  if (shouldPatchMetrics) reportDefinition.metrics = metrics;
 
   const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports/${reportId}?updateMask=${updateMask.join(',')}`, {
     method: 'PATCH',
@@ -373,6 +424,16 @@ function withDateDimension(dimensions = []) {
   const cleanDimensions = dimensions.filter(Boolean);
   if (hasDateDimension(cleanDimensions)) return cleanDimensions;
   return ['DATE', ...cleanDimensions];
+}
+
+function withoutDateDimension(dimensions = []) {
+  const cleanDimensions = dimensions.filter((dimension) => normalizeName(dimension) !== 'DATE');
+  return cleanDimensions.length ? cleanDimensions : ['SITE'];
+}
+
+function sameNormalizedList(left = [], right = []) {
+  if (!Array.isArray(left) || left.length !== right.length) return false;
+  return left.every((item, index) => normalizeName(item) === normalizeName(right[index]));
 }
 
 function listDates(from, to) {
