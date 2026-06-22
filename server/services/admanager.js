@@ -119,7 +119,6 @@ async function fetchReportForRange({
     reportId,
     from,
     to,
-    metrics,
     dimensions,
     patchColumns
   });
@@ -140,7 +139,6 @@ async function updateReportDefinition({
   reportId,
   from,
   to,
-  metrics,
   dimensions,
   patchColumns = false
 }) {
@@ -149,18 +147,13 @@ async function updateReportDefinition({
   const shouldPatchDimensions = patchColumns
     && dimensions?.length
     && !sameNormalizedList(report.reportDefinition?.dimensions, dimensions);
-  const shouldPatchMetrics = patchColumns
-    && metrics?.length
-    && !sameNormalizedList(report.reportDefinition?.metrics, metrics);
   if (shouldPatchDimensions) updateMask.push('reportDefinition.dimensions');
-  if (shouldPatchMetrics) updateMask.push('reportDefinition.metrics');
 
   const reportDefinition = {
     ...(report.reportDefinition || {}),
     dateRange: fixedDateRange(from, to)
   };
   if (shouldPatchDimensions) reportDefinition.dimensions = dimensions;
-  if (shouldPatchMetrics) reportDefinition.metrics = metrics;
 
   const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports/${reportId}?updateMask=${updateMask.join(',')}`, {
     method: 'PATCH',

@@ -198,6 +198,7 @@ test('fast Ad Manager backfill requests date and site dimensions in one range ru
       assert.equal(options.method, 'PATCH');
       assert.match(target, /reportDefinition\.dateRange/);
       assert.match(target, /reportDefinition\.dimensions/);
+      assert.doesNotMatch(target, /reportDefinition\.metrics/);
       const body = JSON.parse(options.body);
       patchedDefinitions.push(body.reportDefinition);
       return Response.json(body);
