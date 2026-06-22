@@ -1383,17 +1383,20 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
             <tr><td className="empty" colSpan={colSpan}>No results.</td></tr>
           )}
         </tbody>
-        {clientMode && !loading && rows.length ? (
+        {!loading && rows.length ? (
           <tfoot>
             <tr>
               <td>Total</td>
+              {!clientMode ? <td>-</td> : null}
               <td>{number(totals.pageViews)}</td>
               {!compact ? <td>{number(totals.impressions)}</td> : null}
               {!compact ? <td>{number(totals.clicks)}</td> : null}
               <td>{percent(totals.adxCtr)}</td>
               <td>{money(totals.adxEcpm)}</td>
-              {!compact ? <td>-</td> : null}
+              {clientMode && !compact ? <td>-</td> : null}
               <td className="money">{money(totals.earnings)}</td>
+              {!clientMode ? <td className="money">{money(totals.clientEarnings)}</td> : null}
+              {!clientMode ? <td>{money(totals.ownerCut)}</td> : null}
               {!compact ? <td>-</td> : null}
               <td />
             </tr>
