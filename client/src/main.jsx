@@ -127,7 +127,7 @@ function Shell({ user, onLogout, theme, onToggleTheme, children }) {
       <main>{children}</main>
       <footer className="footer">
         <span />
-        <span>Developed with care by @Mara8</span>
+        <span>Developed by Ossama</span>
       </footer>
     </div>
   );
