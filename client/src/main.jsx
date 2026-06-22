@@ -287,8 +287,8 @@ function AdminConsole() {
   const [overview, setOverview] = useState({ rows: [], totals: {}, latestSync: [], syncSummary: {} });
   const [clients, setClients] = useState([]);
   const [google, setGoogle] = useState({});
+  const [syncJobs, setSyncJobs] = useState({ active: [], jobs: [] });
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
   const [showAdminInfo, setShowAdminInfo] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState(null);
@@ -312,6 +312,7 @@ function AdminConsole() {
       setOverview(overviewResult);
       setClients(clientResult.clients);
       setGoogle(googleResult);
+      setSyncJobs(normalizeSyncJobs(overviewResult.syncJobs));
       hasLoaded.current = true;
     } finally {
       if (requestId.current === currentRequest && blockingLoad) setLoading(false);
@@ -322,32 +323,40 @@ function AdminConsole() {
     load();
   }, [load]);
 
+  const activeSyncJobs = syncJobs.active || [];
+  const syncBusy = activeSyncJobs.length > 0;
+
+  useEffect(() => {
+    if (!syncBusy) return undefined;
+    const timer = window.setInterval(() => {
+      load({ silent: true });
+    }, 3500);
+    return () => window.clearInterval(timer);
+  }, [load, syncBusy]);
+
   async function syncRange() {
-    await runSync('Syncing selected range...', '/api/admin/sync/google', range);
+    await queueSync('Selected range sync', '/api/admin/sync-jobs/range', range);
   }
 
   async function refreshLatest() {
-    await runSync('Refreshing latest AdX data...', '/api/admin/sync/google/latest');
+    await queueSync('Latest refresh', '/api/admin/sync-jobs/latest');
   }
 
   async function backfillSites() {
-    await runSync('Backfilling tracked sites from stored history...', '/api/admin/sync/google/backfill');
+    await queueSync('Historical backfill', '/api/admin/sync-jobs/backfill');
   }
 
-  async function runSync(startMessage, path, body) {
-    setSyncing(true);
-    setMessage(startMessage);
+  async function queueSync(label, path, body) {
+    setMessage(`Queueing ${label.toLowerCase()}...`);
     try {
       const result = await api(path, {
         method: 'POST',
         ...(body ? { body: JSON.stringify(body) } : {})
       });
-      setMessage(result.ok ? syncMessage(result) : result.error);
-      await load();
+      setMessage(result.duplicate ? `${label} is already running` : `${label} queued`);
+      await load({ silent: true });
     } catch (syncError) {
       setMessage(syncError.message || 'Sync failed');
-    } finally {
-      setSyncing(false);
     }
   }
 
@@ -390,15 +399,15 @@ function AdminConsole() {
         effectiveRange={overview.range}
         setRange={setRange}
         onRefresh={refreshLatest}
-        refreshLabel="Refresh AdX"
-        refreshDisabled={syncing}
+        refreshLabel={syncBusy ? 'Sync Running' : 'Refresh AdX'}
+        refreshDisabled={syncBusy}
         onColumns={() => setCompactColumns((current) => !current)}
       >
-        <button className="ghost-button" type="button" onClick={backfillSites} disabled={syncing}>
+        <button className="ghost-button" type="button" onClick={backfillSites} disabled={syncBusy}>
           <RefreshCcw size={16} />
           Backfill Sites
         </button>
-        <button className="primary-button" type="button" onClick={syncRange} disabled={syncing}>
+        <button className="primary-button" type="button" onClick={syncRange} disabled={syncBusy}>
           <DatabaseZap size={16} />
           Sync Range
         </button>
@@ -411,7 +420,14 @@ function AdminConsole() {
       </div>
       {showAdminInfo ? (
         <>
-          <AdminStatus google={google} message={message} latestSync={overview.latestSync} syncSummary={overview.syncSummary} />
+          <AdminStatus
+            google={google}
+            message={message}
+            latestSync={overview.latestSync}
+            syncSummary={overview.syncSummary}
+            syncJobs={syncJobs}
+          />
+          <SyncJobHistory jobs={syncJobs.jobs} />
           <SyncHistory runs={overview.latestSync} />
         </>
       ) : null}
@@ -487,13 +503,17 @@ function AdminConsole() {
   );
 }
 
-function AdminStatus({ google, message, latestSync, syncSummary = {} }) {
+function AdminStatus({ google, message, latestSync, syncSummary = {}, syncJobs = {} }) {
   const latest = latestSync?.[0];
+  const activeJob = syncJobs.active?.[0];
   const connectionLabel = google.needsReconnectForDateSync ? 'Reconnect for dates' : (google.connected ? 'Connected' : 'Not connected');
   const actionLabel = google.connected || google.needsReconnectForDateSync ? 'Reconnect' : 'Connect';
   const freshnessLabel = syncSummary.latestMetricDate
     ? `${syncSummary.latestMetricDate}${syncSummary.staleDays ? ` (${syncSummary.staleDays}d old)` : ''}`
     : 'No data';
+  const statusLabel = activeJob
+    ? `${jobTitle(activeJob)} ${activeJob.status}`
+    : (message || latest?.message || 'Waiting');
   return (
     <div className="status-rail">
       <div>
@@ -520,7 +540,33 @@ function AdminStatus({ google, message, latestSync, syncSummary = {} }) {
       <div>
         <Activity size={18} />
         <span>Status</span>
-        <strong>{message || latest?.message || 'Waiting'}</strong>
+        <strong>{statusLabel}</strong>
+      </div>
+    </div>
+  );
+}
+
+function SyncJobHistory({ jobs = [] }) {
+  if (!jobs.length) return null;
+  return (
+    <div className="sync-job-panel panel" aria-label="Sync jobs">
+      <div className="panel-heading">
+        <div>
+          <h2>Sync Jobs</h2>
+          <p>Google fetches run here while dashboards keep reading stored data.</p>
+        </div>
+      </div>
+      <div className="sync-job-list">
+        {jobs.slice(0, 5).map((job) => (
+          <div className={`sync-job ${job.status}`} key={job.id}>
+            <div>
+              <strong>{jobTitle(job)}</strong>
+              <span>{job.message || job.error || 'Waiting for worker'}</span>
+            </div>
+            <em>{job.status}</em>
+            <span>{job.rowsSynced ? `${number(job.rowsSynced)} rows` : formatDateTime(job.startedAt || job.createdAt)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -539,6 +585,19 @@ function SyncHistory({ runs = [] }) {
       ))}
     </div>
   );
+}
+
+function jobTitle(job) {
+  if (job.type === 'backfill') return 'Backfill Sites';
+  if (job.type === 'range') return 'Sync Range';
+  return 'Refresh AdX';
+}
+
+function normalizeSyncJobs(syncJobs = {}) {
+  return {
+    active: syncJobs.active || [],
+    jobs: syncJobs.jobs || syncJobs.recent || []
+  };
 }
 
 function syncMessage(result) {

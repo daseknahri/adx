@@ -4,7 +4,7 @@ import { audit, requireAdmin } from '../middleware.js';
 import { getGoogleStatus, startOAuth, handleOAuthCallback } from '../services/google-oauth.js';
 import { syncGoogleBackfill, syncGoogleLatest, syncGoogleReports } from '../services/sync.js';
 
-export function adminRouter(db, config) {
+export function adminRouter(db, config, syncJobs = null) {
   const router = express.Router();
   router.use(requireAdmin);
 
@@ -31,8 +31,12 @@ export function adminRouter(db, config) {
       LIMIT 5
     `).all();
     const syncSummary = dataFreshness(db);
+    const jobSummary = syncJobs ? {
+      active: syncJobs.active(),
+      recent: syncJobs.list(5)
+    } : { active: [], recent: [] };
 
-    res.json({ range, totals, rows, latestSync, syncSummary });
+    res.json({ range, totals, rows, latestSync, syncSummary, syncJobs: jobSummary });
   });
 
   router.get('/clients', (req, res) => {
@@ -95,6 +99,7 @@ export function adminRouter(db, config) {
       db.prepare('DELETE FROM users WHERE role = ?').run('client');
       db.prepare('DELETE FROM clients').run();
       db.prepare('DELETE FROM subdomains').run();
+      db.prepare('DELETE FROM sync_jobs').run();
       db.prepare('DELETE FROM sync_runs').run();
       audit(db, req, 'workspace.cleared', 'workspace', null, before);
       return before;
@@ -386,6 +391,45 @@ export function adminRouter(db, config) {
     const result = await syncGoogleBackfill(db, config);
     audit(db, req, 'sync.google.backfill', 'sync_run', result.syncRunId, result);
     res.json(result);
+  });
+
+  router.get('/sync-jobs', (req, res) => {
+    if (!syncJobs) return res.json({ active: [], jobs: [] });
+    res.json({
+      active: syncJobs.active(),
+      jobs: syncJobs.list(8)
+    });
+  });
+
+  router.get('/sync-jobs/:id', (req, res) => {
+    if (!syncJobs) return res.status(404).json({ error: 'not_found' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'invalid_job' });
+    const job = syncJobs.get(id);
+    if (!job) return res.status(404).json({ error: 'not_found' });
+    res.json({ job });
+  });
+
+  router.post('/sync-jobs/range', (req, res) => {
+    if (!syncJobs) return res.status(503).json({ error: 'sync_jobs_unavailable' });
+    const range = parseRange(db, req.body || {});
+    const result = syncJobs.queue('range', { range }, req.user.id);
+    audit(db, req, 'sync.job.range', 'sync_job', result.job.id, { range, duplicate: result.duplicate });
+    res.status(result.duplicate ? 200 : 202).json({ ok: true, ...result });
+  });
+
+  router.post('/sync-jobs/latest', (req, res) => {
+    if (!syncJobs) return res.status(503).json({ error: 'sync_jobs_unavailable' });
+    const result = syncJobs.queue('latest', {}, req.user.id);
+    audit(db, req, 'sync.job.latest', 'sync_job', result.job.id, { duplicate: result.duplicate });
+    res.status(result.duplicate ? 200 : 202).json({ ok: true, ...result });
+  });
+
+  router.post('/sync-jobs/backfill', (req, res) => {
+    if (!syncJobs) return res.status(503).json({ error: 'sync_jobs_unavailable' });
+    const result = syncJobs.queue('backfill', {}, req.user.id);
+    audit(db, req, 'sync.job.backfill', 'sync_job', result.job.id, { duplicate: result.duplicate });
+    res.status(result.duplicate ? 200 : 202).json({ ok: true, ...result });
   });
 
   router.get('/google/status', (req, res) => {

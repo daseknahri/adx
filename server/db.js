@@ -116,6 +116,26 @@ function migrate(db) {
       rows_synced INTEGER NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS sync_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL CHECK(type IN ('range', 'latest', 'backfill')),
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed')),
+      requested_by INTEGER,
+      payload_json TEXT,
+      sync_run_id INTEGER,
+      range_from TEXT,
+      range_to TEXT,
+      rows_synced INTEGER NOT NULL DEFAULT 0,
+      message TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      started_at TEXT,
+      finished_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sync_jobs_status_created
+      ON sync_jobs (status, created_at);
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       actor_user_id INTEGER,
@@ -131,6 +151,10 @@ function migrate(db) {
   ensureColumn(db, 'client_subdomains', 'visible_from', 'TEXT');
   ensureColumn(db, 'client_subdomains', 'owner_cut_percent', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'subdomain_assignment_history', 'owner_cut_percent', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'sync_jobs', 'sync_run_id', 'INTEGER');
+  ensureColumn(db, 'sync_jobs', 'range_from', 'TEXT');
+  ensureColumn(db, 'sync_jobs', 'range_to', 'TEXT');
+  ensureColumn(db, 'sync_jobs', 'rows_synced', 'INTEGER NOT NULL DEFAULT 0');
   db.prepare(`
     UPDATE client_subdomains
     SET visible_from = COALESCE(NULLIF(visible_from, ''), substr(assigned_at, 1, 10), date('now'))

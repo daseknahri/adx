@@ -64,6 +64,38 @@ test('admin mock Google sync writes one metric row per domain per date', async (
   assert.match(syncRun.message, /Synced \d+ domain rows/);
 });
 
+test('admin queued sync job completes without blocking the dashboard', async (t) => {
+  const app = await startTestApp({ enableGoogleSync: false });
+  t.after(() => app.close());
+
+  const domainCount = app.db.prepare('SELECT COUNT(*) AS count FROM subdomains').get().count;
+  const { cookie } = await login(app.baseUrl, app.config.seedAdminEmail, app.config.seedAdminPassword);
+
+  const queued = await request(app.baseUrl, '/api/admin/sync-jobs/range', {
+    method: 'POST',
+    headers: { cookie },
+    body: JSON.stringify({ from: '2026-06-17', to: '2026-06-18' })
+  });
+
+  assert.equal(queued.response.status, 202);
+  assert.equal(queued.body.ok, true);
+  assert.equal(queued.body.job.type, 'range');
+  assert.ok(['queued', 'running'].includes(queued.body.job.status));
+
+  const job = await waitFor(() => {
+    const row = app.db.prepare('SELECT status, rows_synced AS rowsSynced FROM sync_jobs WHERE id = ?').get(queued.body.job.id);
+    return row?.status === 'success' ? row : null;
+  });
+  assert.equal(job.rowsSynced, domainCount * 2);
+
+  const overview = await request(app.baseUrl, '/api/admin/overview', {
+    headers: { cookie }
+  });
+  assert.equal(overview.response.status, 200);
+  assert.equal(overview.body.syncJobs.recent[0].status, 'success');
+  assert.equal(overview.body.syncJobs.recent[0].rowsSynced, domainCount * 2);
+});
+
 test('clients cannot run mock Google sync', async (t) => {
   const app = await startTestApp({ enableGoogleSync: false });
   t.after(() => app.close());
@@ -194,6 +226,16 @@ function listDates(from, to) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return dates;
+}
+
+async function waitFor(check, timeoutMs = 2500) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = check();
+    if (result) return result;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('Timed out waiting for condition');
 }
 
 test('connected Google OAuth uses Ad Manager even when demo env flag is false', async (t) => {

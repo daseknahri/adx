@@ -12,11 +12,13 @@ import { authRouter } from './routes/auth.js';
 import { adminRouter } from './routes/admin.js';
 import { clientRouter } from './routes/client.js';
 import { cronRouter } from './routes/cron.js';
+import { createSyncJobRunner } from './services/sync-jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function createApp({ db, config: appConfig = config }) {
   const app = express();
+  const syncJobs = createSyncJobRunner(db, appConfig);
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -51,7 +53,7 @@ export function createApp({ db, config: appConfig = config }) {
 
   app.use('/api/auth', authRouter(db, appConfig));
   app.use('/api/cron', cronRouter(db, appConfig));
-  app.use('/api/admin', adminRouter(db, appConfig));
+  app.use('/api/admin', adminRouter(db, appConfig, syncJobs));
   app.use('/api/client', clientRouter(db, appConfig));
 
   const publicDir = path.join(__dirname, 'public');
