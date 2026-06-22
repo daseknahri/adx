@@ -25,7 +25,9 @@ export async function fetchAdManagerReport({
         patchColumns: true
       });
     } catch (error) {
-      console.warn(`Fast Ad Manager date backfill failed, falling back to daily runs: ${error.message}`);
+      if (!isExpectedFastDimensionFallback(error)) {
+        console.warn(`Fast Ad Manager date backfill failed, falling back to daily runs: ${error.message}`);
+      }
       return fetchDailySiteReports({
         accessToken,
         networkCode,
@@ -144,16 +146,14 @@ async function updateReportDefinition({
 }) {
   const report = await getReport({ accessToken, networkCode, reportId });
   const updateMask = ['reportDefinition.dateRange'];
-  const shouldPatchDimensions = patchColumns
-    && dimensions?.length
-    && !sameNormalizedList(report.reportDefinition?.dimensions, dimensions);
-  if (shouldPatchDimensions) updateMask.push('reportDefinition.dimensions');
+  if (patchColumns && dimensions?.length && !sameNormalizedList(report.reportDefinition?.dimensions, dimensions)) {
+    throw new Error(`Saved Ad Manager report dimensions are ${formatDimensionList(report.reportDefinition?.dimensions)}; expected ${formatDimensionList(dimensions)} for fast range sync`);
+  }
 
   const reportDefinition = {
     ...(report.reportDefinition || {}),
     dateRange: fixedDateRange(from, to)
   };
-  if (shouldPatchDimensions) reportDefinition.dimensions = dimensions;
 
   const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports/${reportId}?updateMask=${updateMask.join(',')}`, {
     method: 'PATCH',
@@ -427,6 +427,14 @@ function withoutDateDimension(dimensions = []) {
 function sameNormalizedList(left = [], right = []) {
   if (!Array.isArray(left) || left.length !== right.length) return false;
   return left.every((item, index) => normalizeName(item) === normalizeName(right[index]));
+}
+
+function formatDimensionList(dimensions = []) {
+  return Array.isArray(dimensions) && dimensions.length ? dimensions.join(',') : 'none';
+}
+
+function isExpectedFastDimensionFallback(error) {
+  return String(error?.message || '').startsWith('Saved Ad Manager report dimensions are ');
 }
 
 function listDates(from, to) {

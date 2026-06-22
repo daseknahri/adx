@@ -113,7 +113,7 @@ test('fetches site-only Ad Manager reports once per day for range accuracy', asy
       return Response.json({
         name: 'networks/23350042371/reports/7704780540',
         reportDefinition: {
-          dimensions: ['SITE'],
+          dimensions: ['DATE', 'SITE'],
           metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
           dateRange: { relative: 'TODAY' }
         }
@@ -188,7 +188,7 @@ test('fast Ad Manager backfill requests date and site dimensions in one range ru
       return Response.json({
         name: 'networks/23350042371/reports/7704780540',
         reportDefinition: {
-          dimensions: ['SITE'],
+          dimensions: ['DATE', 'SITE'],
           metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
           dateRange: { relative: 'TODAY' }
         }
@@ -197,7 +197,7 @@ test('fast Ad Manager backfill requests date and site dimensions in one range ru
     if (target.includes('/networks/23350042371/reports/7704780540?updateMask=')) {
       assert.equal(options.method, 'PATCH');
       assert.match(target, /reportDefinition\.dateRange/);
-      assert.match(target, /reportDefinition\.dimensions/);
+      assert.doesNotMatch(target, /reportDefinition\.dimensions/);
       assert.doesNotMatch(target, /reportDefinition\.metrics/);
       const body = JSON.parse(options.body);
       patchedDefinitions.push(body.reportDefinition);
@@ -245,7 +245,6 @@ test('fast Ad Manager backfill requests date and site dimensions in one range ru
 
   assert.equal(runCount, 1);
   assert.equal(patchedDefinitions.length, 1);
-  assert.deepEqual(patchedDefinitions[0].dimensions, ['DATE', 'SITE']);
   assert.deepEqual(patchedDefinitions[0].dateRange, {
     fixed: {
       startDate: { year: 2026, month: 6, day: 18 },
@@ -256,7 +255,7 @@ test('fast Ad Manager backfill requests date and site dimensions in one range ru
   assert.deepEqual(rows.map((row) => row.earnings), [10, 24.18]);
 });
 
-test('date-dimension Ad Manager sync falls back to site-only daily runs on 400', async (t) => {
+test('date-dimension Ad Manager sync skips fast path when saved report lacks date', async (t) => {
   const originalFetch = globalThis.fetch;
   const patchedTargets = [];
   let currentDate = '';
@@ -280,7 +279,7 @@ test('date-dimension Ad Manager sync falls back to site-only daily runs on 400',
       patchedTargets.push(target);
       const body = JSON.parse(options.body);
       if (target.includes('reportDefinition.dimensions')) {
-        return new Response('Cannot update dimensions', { status: 400 });
+        throw new Error('Dimensions should not be patched');
       }
       const startDate = body.reportDefinition.dateRange.fixed.startDate;
       currentDate = `${startDate.year}-${String(startDate.month).padStart(2, '0')}-${String(startDate.day).padStart(2, '0')}`;
@@ -327,7 +326,7 @@ test('date-dimension Ad Manager sync falls back to site-only daily runs on 400',
     preferDateDimension: true
   });
 
-  assert.equal(patchedTargets.some((target) => target.includes('reportDefinition.dimensions')), true);
+  assert.equal(patchedTargets.some((target) => target.includes('reportDefinition.dimensions')), false);
   assert.equal(patchedTargets.filter((target) => target.endsWith('updateMask=reportDefinition.dateRange')).length, 2);
   assert.deepEqual(rows.map((row) => row.date), ['2026-06-18', '2026-06-19']);
   assert.deepEqual(rows.map((row) => row.earnings), [10, 24.18]);
