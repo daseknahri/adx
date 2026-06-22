@@ -127,7 +127,7 @@ function Shell({ user, onLogout, theme, onToggleTheme, children }) {
       <main>{children}</main>
       <footer className="footer">
         <span />
-        <span>Developed by Ossama</span>
+        <span>Developed by Oussama</span>
       </footer>
     </div>
   );
@@ -1316,7 +1316,7 @@ function MetricStrip({ totals = {}, clientMode = false }) {
 
 function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, onEdit, onDelete }) {
   const colSpan = clientMode
-    ? (compact ? 6 : 10)
+    ? (compact ? 7 : 11)
     : (compact ? 9 : 12);
   return (
     <div className="domain-table-wrap">
@@ -1331,7 +1331,8 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
             <th>AdX CTR</th>
             <th>AdX eCPM</th>
             {clientMode && !compact ? <th>Client Share</th> : null}
-            <th>{clientMode ? 'Your Earnings' : 'Gross Revenue'}</th>
+            {clientMode ? <th>Full Return</th> : null}
+            <th>{clientMode ? 'Net Return' : 'Gross Revenue'}</th>
             {!clientMode ? <th>Client Net</th> : null}
             {!clientMode ? <th>Admin Cut</th> : null}
             {!compact ? <th>Source</th> : null}
@@ -1357,6 +1358,7 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
               <td>{percent(row.adxCtr)}</td>
               <td>{money(row.adxEcpm)}</td>
               {clientMode && !compact ? <td>{number(row.clientSharePercent)}%</td> : null}
+              {clientMode ? <td className="money">{money(row.grossEarnings)}</td> : null}
               <td className="money">{money(row.earnings)}</td>
               {!clientMode ? <td className="money">{money(row.clientEarnings)}</td> : null}
               {!clientMode ? <td>{money(row.ownerCut)}</td> : null}
@@ -1394,6 +1396,7 @@ function DomainTable({ rows, totals = {}, loading, clientMode, compact, onView, 
               <td>{percent(totals.adxCtr)}</td>
               <td>{money(totals.adxEcpm)}</td>
               {clientMode && !compact ? <td>-</td> : null}
+              {clientMode ? <td className="money">{money(totals.grossEarnings)}</td> : null}
               <td className="money">{money(totals.earnings)}</td>
               {!clientMode ? <td className="money">{money(totals.clientEarnings)}</td> : null}
               {!clientMode ? <td>{money(totals.ownerCut)}</td> : null}
