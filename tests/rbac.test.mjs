@@ -211,12 +211,15 @@ test('admin and client date filters read the same stored AdX rows', async (t) =>
   assert.equal(clientDashboard.response.status, 200);
   assert.deepEqual(adminOverview.body.range, { from: metricDate, to: metricDate });
   assert.deepEqual(clientDashboard.body.range, { from: metricDate, to: metricDate });
+  assert.ok(adminOverview.body.totals.pageViews > 0);
+  assert.ok(adminOverview.body.totals.earnings > 0);
 
   for (const clientRow of clientDashboard.body.rows) {
     const adminRow = adminOverview.body.rows.find((row) => row.id === clientRow.id);
     assert.ok(adminRow, `admin row missing for ${clientRow.domain}`);
     assert.equal(clientRow.grossEarnings, adminRow.earnings);
     assert.equal(clientRow.earnings, adminRow.clientEarnings);
+    assert.equal(clientRow.ownerCutPercent, adminRow.ownerCutPercent);
     assert.equal(clientRow.pageViews, adminRow.pageViews);
     assert.equal(clientRow.impressions, adminRow.impressions);
     assert.equal(clientRow.adxCtr, adminRow.adxCtr);
