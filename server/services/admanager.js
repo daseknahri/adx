@@ -8,9 +8,22 @@ export async function fetchAdManagerReport({
   to,
   metrics,
   dimensions,
+  currencyCode = 'MAD',
   preferDateDimension = false
 }) {
-  if (!accessToken || !networkCode || !reportId) return [];
+  if (!accessToken || !networkCode) return [];
+
+  if (!reportId) {
+    return fetchGeneratedReportForRange({
+      accessToken,
+      networkCode,
+      from,
+      to,
+      metrics,
+      dimensions: withDateDimension(dimensions),
+      currencyCode
+    });
+  }
 
   if ((preferDateDimension || hasDateDimension(dimensions)) && from !== to) {
     try {
@@ -25,6 +38,18 @@ export async function fetchAdManagerReport({
         patchColumns: true
       });
     } catch (error) {
+      if (isMissingReportError(error)) {
+        console.warn(`Saved Ad Manager report ${reportId} was not found; creating a hidden API report for this sync.`);
+        return fetchGeneratedReportForRange({
+          accessToken,
+          networkCode,
+          from,
+          to,
+          metrics,
+          dimensions: withDateDimension(dimensions),
+          currencyCode
+        });
+      }
       if (!isExpectedFastDimensionFallback(error)) {
         console.warn(`Fast Ad Manager date backfill failed, falling back to daily runs: ${error.message}`);
       }
@@ -64,6 +89,18 @@ export async function fetchAdManagerReport({
       patchColumns: hasDateDimension(dimensions)
     });
   } catch (error) {
+    if (isMissingReportError(error)) {
+      console.warn(`Saved Ad Manager report ${reportId} was not found; creating a hidden API report for this sync.`);
+      return fetchGeneratedReportForRange({
+        accessToken,
+        networkCode,
+        from,
+        to,
+        metrics,
+        dimensions: withDateDimension(dimensions),
+        currencyCode
+      });
+    }
     if (!hasDateDimension(dimensions)) throw error;
     console.warn(`Date-dimension Ad Manager sync failed, falling back to site-only run: ${error.message}`);
     return fetchReportForRange({
@@ -135,6 +172,73 @@ async function fetchReportForRange({
   });
 }
 
+async function fetchGeneratedReportForRange({
+  accessToken,
+  networkCode,
+  from,
+  to,
+  metrics,
+  dimensions,
+  currencyCode
+}) {
+  const cleanDimensions = sanitizeDimensions(dimensions);
+  const cleanMetrics = sanitizeMetrics(metrics);
+  const report = await createReport({
+    accessToken,
+    networkCode,
+    from,
+    to,
+    dimensions: cleanDimensions,
+    metrics: cleanMetrics,
+    currencyCode
+  });
+  const operation = await runReport({
+    accessToken,
+    reportName: report.name || `networks/${networkCode}/reports/${report.reportId}`
+  });
+  const reportResult = await waitForReportResult({ accessToken, operation });
+  const payload = await fetchAllRows({ accessToken, reportResult });
+
+  return normalizeAdManagerRows(payload, {
+    range: { from, to },
+    metrics,
+    dimensions: cleanDimensions
+  });
+}
+
+async function createReport({
+  accessToken,
+  networkCode,
+  from,
+  to,
+  dimensions,
+  metrics,
+  currencyCode
+}) {
+  const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      displayName: `AdX Tracker ${from} - ${to}`,
+      visibility: 'HIDDEN',
+      reportDefinition: {
+        dimensions,
+        metrics,
+        dateRange: fixedDateRange(from, to),
+        reportType: 'HISTORICAL',
+        currencyCode
+      }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Ad Manager report create failed: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
 async function updateReportDefinition({
   accessToken,
   networkCode,
@@ -185,8 +289,9 @@ async function getReport({ accessToken, networkCode, reportId }) {
   return response.json();
 }
 
-async function runReport({ accessToken, networkCode, reportId }) {
-  const response = await fetch(`${AD_MANAGER_API}/networks/${networkCode}/reports/${reportId}:run`, {
+async function runReport({ accessToken, networkCode, reportId, reportName }) {
+  const name = reportName || `networks/${networkCode}/reports/${reportId}`;
+  const response = await fetch(`${AD_MANAGER_API}/${name}:run`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -424,6 +529,22 @@ function withoutDateDimension(dimensions = []) {
   return cleanDimensions.length ? cleanDimensions : ['SITE'];
 }
 
+function sanitizeDimensions(dimensions = []) {
+  const cleanDimensions = dimensions.filter(Boolean);
+  return cleanDimensions.length ? cleanDimensions : ['SITE'];
+}
+
+function sanitizeMetrics(metrics = []) {
+  const cleanMetrics = metrics.map(apiMetricName).filter(Boolean);
+  return cleanMetrics.length ? cleanMetrics : ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'IMPRESSIONS'];
+}
+
+function apiMetricName(metric) {
+  const normalized = normalizeName(metric);
+  if (normalized === 'TOTAL_IMPRESSIONS') return 'IMPRESSIONS';
+  return normalized;
+}
+
 function sameNormalizedList(left = [], right = []) {
   if (!Array.isArray(left) || left.length !== right.length) return false;
   return left.every((item, index) => normalizeName(item) === normalizeName(right[index]));
@@ -435,6 +556,14 @@ function formatDimensionList(dimensions = []) {
 
 function isExpectedFastDimensionFallback(error) {
   return String(error?.message || '').startsWith('Saved Ad Manager report dimensions are ');
+}
+
+function isMissingReportError(error) {
+  const message = String(error?.message || '');
+  return message.includes('Ad Manager report lookup failed: 404')
+    || message.includes('Ad Manager report run failed: 404')
+    || message.includes('COMMON_ERROR_NOT_FOUND')
+    || message.includes('Entity was not found');
 }
 
 function listDates(from, to) {

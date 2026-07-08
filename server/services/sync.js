@@ -15,7 +15,7 @@ export async function syncGoogleReports(db, config, range, options = {}) {
     if (canUseLiveSync) {
       const accessToken = await getAccessToken(db, config);
       if (!accessToken) throw new Error('Google is not connected');
-      if (config.adManagerNetworkCode && config.adManagerReportId) {
+      if (config.adManagerNetworkCode) {
         revenueRows = await fetchAdManagerReport({
           accessToken,
           networkCode: config.adManagerNetworkCode,
@@ -24,6 +24,7 @@ export async function syncGoogleReports(db, config, range, options = {}) {
           to: range.to,
           metrics: config.adManagerReportMetrics,
           dimensions: config.adManagerReportDimensions,
+          currencyCode: config.reportCurrency,
           preferDateDimension: Boolean(options.preferDateDimension)
         });
         sourceMode = 'admanager';

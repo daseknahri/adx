@@ -13,8 +13,10 @@ their assigned Google Ad Manager / AdX numbers.
 - Pausing a client immediately blocks new logins and API access while retaining
   the client, domains, and stored reporting data for later reactivation.
 - Google Ad Manager OAuth connection and AdX report sync.
-- AdX revenue, CTR, eCPM, and impressions from an existing interactive report.
-- Exact selected date/range sync by setting the saved Ad Manager report date range before each run.
+- AdX revenue, CTR, eCPM, and impressions from Google Ad Manager reports.
+- Exact selected date/range sync by setting the saved Ad Manager report date
+  range before each run, or by creating a hidden API report when no saved report
+  ID is configured.
 - Backfill old AdX dates with Sync Range or Backfill Sites, then use Refresh AdX
   and the cron task to fetch only the latest stored date through today.
 - Optional GA4 sync for visitor columns.
@@ -58,7 +60,7 @@ values in Coolify:
 - Google OAuth redirect URI:
   `https://your-domain.example/api/admin/google/oauth/callback`.
 - Google Ad Manager network/report settings:
-  `AD_MANAGER_NETWORK_CODE`, `AD_MANAGER_REPORT_ID`,
+  `AD_MANAGER_NETWORK_CODE`, optional `AD_MANAGER_REPORT_ID`,
   `AD_MANAGER_REPORT_DIMENSIONS`, and `AD_MANAGER_REPORT_METRICS`.
 
 From the provided Ad Manager screenshot, the likely production values are:
@@ -67,7 +69,7 @@ From the provided Ad Manager screenshot, the likely production values are:
 AD_MANAGER_NETWORK_CODE=23350042371
 AD_MANAGER_REPORT_ID=7704780540
 AD_MANAGER_REPORT_DIMENSIONS=DATE,SITE
-AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,TOTAL_IMPRESSIONS
+AD_MANAGER_REPORT_METRICS=REVENUE,AD_EXCHANGE_CTR,AD_EXCHANGE_AVERAGE_ECPM,IMPRESSIONS
 REPORT_CURRENCY=MAD
 ```
 
@@ -75,6 +77,10 @@ Use `DATE,SITE` for `AD_MANAGER_REPORT_DIMENSIONS` when possible. That lets
 backfill fetch a full date range in one Ad Manager run instead of one run per
 day. If Google rejects the date dimension, the app falls back to the slower
 day-by-day sync automatically.
+
+If a saved report was deleted or belongs to another Ad Manager network, Google
+returns `404 Entity was not found`. The app now treats that as a stale
+`AD_MANAGER_REPORT_ID` and creates a hidden API report for the sync instead.
 
 Enable GitHub auto-deploys in Coolify only after the first manual deployment
 passes the `/health` check.
