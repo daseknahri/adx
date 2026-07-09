@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { fetchAdManagerReport, normalizeAdManagerRows } from '../server/services/admanager.js';
+import {
+  fetchAdManagerReport,
+  normalizeAdManagerRows,
+  resetAdManagerReportCacheForTests
+} from '../server/services/admanager.js';
 
 test('normalizes Ad Manager report rows with configured Site metrics', () => {
   const rows = normalizeAdManagerRows({
@@ -333,10 +337,12 @@ test('date-dimension Ad Manager sync skips fast path when saved report lacks dat
 });
 
 test('creates a hidden Ad Manager API report when no saved report id is configured', async (t) => {
+  resetAdManagerReportCacheForTests();
   const originalFetch = globalThis.fetch;
   const createdReports = [];
   t.after(() => {
     globalThis.fetch = originalFetch;
+    resetAdManagerReportCacheForTests();
   });
 
   globalThis.fetch = async (url, options = {}) => {
@@ -394,16 +400,22 @@ test('creates a hidden Ad Manager API report when no saved report id is configur
   assert.equal(rows[0].impressions, 951);
 });
 
-test('falls back to a generated Ad Manager API report when saved report id is stale', async (t) => {
+test('reuses a generated Ad Manager API report after saved report id is stale', async (t) => {
+  resetAdManagerReportCacheForTests();
   const originalFetch = globalThis.fetch;
   let createCount = 0;
+  let staleLookupCount = 0;
+  let generatedPatchCount = 0;
+  let currentRange = 'initial';
   t.after(() => {
     globalThis.fetch = originalFetch;
+    resetAdManagerReportCacheForTests();
   });
 
   globalThis.fetch = async (url, options = {}) => {
     const target = String(url);
     if (target.endsWith('/networks/23350042371/reports/7704780540')) {
+      staleLookupCount += 1;
       return Response.json({
         error: {
           code: 404,
@@ -416,7 +428,14 @@ test('falls back to a generated Ad Manager API report when saved report id is st
       createCount += 1;
       const body = JSON.parse(options.body);
       assert.deepEqual(body.reportDefinition.dimensions, ['DATE', 'SITE']);
+      currentRange = `${body.reportDefinition.dateRange.fixed.startDate.day}-${body.reportDefinition.dateRange.fixed.endDate.day}`;
       return Response.json({ name: 'networks/23350042371/reports/generated-stale' });
+    }
+    if (target.includes('/networks/23350042371/reports/generated-stale?updateMask=reportDefinition.dateRange')) {
+      generatedPatchCount += 1;
+      const body = JSON.parse(options.body);
+      currentRange = `${body.reportDefinition.dateRange.fixed.startDate.day}-${body.reportDefinition.dateRange.fixed.endDate.day}`;
+      return Response.json(body);
     }
     if (target.endsWith('/networks/23350042371/reports/generated-stale:run')) {
       return Response.json({ name: 'networks/23350042371/operations/reports/runs/generated-stale' });
@@ -431,7 +450,12 @@ test('falls back to a generated Ad Manager API report when saved report id is st
     }
     if (target.includes('/results/range:fetchRows')) {
       return Response.json({
-        rows: [
+        rows: currentRange === '20-20' ? [
+          {
+            dimensionValues: [{ value: '20260620' }, { value: 'allrecipes.panrecipe.com' }],
+            metricValueGroups: [{ values: [{ value: 'MAD30.00' }, { value: '3.00%' }, { value: 'MAD30.00' }, { value: '1000' }] }]
+          }
+        ] : [
           {
             dimensionValues: [{ value: '20260618' }, { value: 'allrecipes.panrecipe.com' }],
             metricValueGroups: [{ values: [{ value: 'MAD10.00' }, { value: '2.00%' }, { value: 'MAD20.00' }, { value: '500' }] }]
@@ -458,6 +482,25 @@ test('falls back to a generated Ad Manager API report when saved report id is st
   });
 
   assert.equal(createCount, 1);
+  assert.equal(staleLookupCount, 1);
+  assert.equal(generatedPatchCount, 0);
   assert.deepEqual(rows.map((row) => row.date), ['2026-06-18', '2026-06-19']);
   assert.deepEqual(rows.map((row) => row.impressions), [500, 951]);
+
+  const secondRows = await fetchAdManagerReport({
+    accessToken: 'access-token',
+    networkCode: '23350042371',
+    reportId: '7704780540',
+    from: '2026-06-20',
+    to: '2026-06-20',
+    dimensions: ['SITE'],
+    metrics: ['REVENUE', 'AD_EXCHANGE_CTR', 'AD_EXCHANGE_AVERAGE_ECPM', 'TOTAL_IMPRESSIONS'],
+    preferDateDimension: true
+  });
+
+  assert.equal(createCount, 1);
+  assert.equal(staleLookupCount, 1);
+  assert.equal(generatedPatchCount, 1);
+  assert.deepEqual(secondRows.map((row) => row.date), ['2026-06-20']);
+  assert.deepEqual(secondRows.map((row) => row.impressions), [1000]);
 });

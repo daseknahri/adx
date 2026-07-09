@@ -1,4 +1,13 @@
 const AD_MANAGER_API = 'https://admanager.googleapis.com/v1';
+const generatedReportCache = new Map();
+const staleSavedReportIds = new Set();
+const warnedStaleSavedReportIds = new Set();
+
+export function resetAdManagerReportCacheForTests() {
+  generatedReportCache.clear();
+  staleSavedReportIds.clear();
+  warnedStaleSavedReportIds.clear();
+}
 
 export async function fetchAdManagerReport({
   accessToken,
@@ -13,7 +22,7 @@ export async function fetchAdManagerReport({
 }) {
   if (!accessToken || !networkCode) return [];
 
-  if (!reportId) {
+  if (!reportId || staleSavedReportIds.has(savedReportKey(networkCode, reportId))) {
     return fetchGeneratedReportForRange({
       accessToken,
       networkCode,
@@ -39,7 +48,7 @@ export async function fetchAdManagerReport({
       });
     } catch (error) {
       if (isMissingReportError(error)) {
-        console.warn(`Saved Ad Manager report ${reportId} was not found; creating a hidden API report for this sync.`);
+        markStaleSavedReport(networkCode, reportId);
         return fetchGeneratedReportForRange({
           accessToken,
           networkCode,
@@ -90,7 +99,7 @@ export async function fetchAdManagerReport({
     });
   } catch (error) {
     if (isMissingReportError(error)) {
-      console.warn(`Saved Ad Manager report ${reportId} was not found; creating a hidden API report for this sync.`);
+      markStaleSavedReport(networkCode, reportId);
       return fetchGeneratedReportForRange({
         accessToken,
         networkCode,
@@ -183,19 +192,34 @@ async function fetchGeneratedReportForRange({
 }) {
   const cleanDimensions = sanitizeDimensions(dimensions);
   const cleanMetrics = sanitizeMetrics(metrics);
-  const report = await createReport({
-    accessToken,
-    networkCode,
-    from,
-    to,
-    dimensions: cleanDimensions,
-    metrics: cleanMetrics,
-    currencyCode
-  });
-  const operation = await runReport({
-    accessToken,
-    reportName: report.name || `networks/${networkCode}/reports/${report.reportId}`
-  });
+  const cacheKey = generatedReportKey(networkCode, cleanDimensions, cleanMetrics, currencyCode);
+  let reportName = generatedReportCache.get(cacheKey);
+
+  if (reportName) {
+    try {
+      await patchReportDateRange({ accessToken, reportName, from, to });
+    } catch (error) {
+      if (!isMissingReportError(error)) throw error;
+      generatedReportCache.delete(cacheKey);
+      reportName = '';
+    }
+  }
+
+  if (!reportName) {
+    const report = await createReport({
+      accessToken,
+      networkCode,
+      from,
+      to,
+      dimensions: cleanDimensions,
+      metrics: cleanMetrics,
+      currencyCode
+    });
+    reportName = report.name || `networks/${networkCode}/reports/${report.reportId}`;
+    generatedReportCache.set(cacheKey, reportName);
+  }
+
+  const operation = await runReport({ accessToken, reportName });
   const reportResult = await waitForReportResult({ accessToken, operation });
   const payload = await fetchAllRows({ accessToken, reportResult });
 
@@ -222,7 +246,7 @@ async function createReport({
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      displayName: `AdX Tracker ${from} - ${to}`,
+      displayName: `AdX Tracker ${networkCode} ${dimensions.join(',')}`,
       visibility: 'HIDDEN',
       reportDefinition: {
         dimensions,
@@ -237,6 +261,29 @@ async function createReport({
     throw new Error(`Ad Manager report create failed: ${response.status} ${await response.text()}`);
   }
   return response.json();
+}
+
+async function patchReportDateRange({ accessToken, reportName, from, to }) {
+  const response = await fetch(`${AD_MANAGER_API}/${reportName}?updateMask=reportDefinition.dateRange`, {
+    method: 'PATCH',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: reportName,
+      reportDefinition: {
+        dateRange: fixedDateRange(from, to)
+      }
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Reconnect Google Ad Manager. Exact date sync requires the admanager OAuth scope.');
+    }
+    throw new Error(`Generated Ad Manager report date update failed: ${response.status} ${detail}`);
+  }
 }
 
 async function updateReportDefinition({
@@ -564,6 +611,27 @@ function isMissingReportError(error) {
     || message.includes('Ad Manager report run failed: 404')
     || message.includes('COMMON_ERROR_NOT_FOUND')
     || message.includes('Entity was not found');
+}
+
+function markStaleSavedReport(networkCode, reportId) {
+  const key = savedReportKey(networkCode, reportId);
+  staleSavedReportIds.add(key);
+  if (warnedStaleSavedReportIds.has(key)) return;
+  warnedStaleSavedReportIds.add(key);
+  console.warn(`Saved Ad Manager report ${reportId} was not found; using a reusable hidden API report for future syncs.`);
+}
+
+function savedReportKey(networkCode, reportId) {
+  return `${networkCode}:${reportId || ''}`;
+}
+
+function generatedReportKey(networkCode, dimensions, metrics, currencyCode) {
+  return [
+    networkCode,
+    dimensions.map(normalizeName).join(','),
+    metrics.map(normalizeName).join(','),
+    normalizeName(currencyCode || '')
+  ].join('|');
 }
 
 function listDates(from, to) {
